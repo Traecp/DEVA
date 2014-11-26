@@ -28,15 +28,20 @@ from matplotlib.cm import jet # colormap
 from matplotlib.widgets import Cursor
 from matplotlib.patches import Rectangle
 from matplotlib.ticker import MaxNLocator
+#calculation of two theta,chi
 import fabio
-from DEVA import pyFAI
+try:
+	import pyFAI
+except:
+	from DEVA import pyFAI
+try:
+	import xrayutilities
+except:
+	from DEVA import xrayutilities
 
 __author__="Tra NGUYEN THANH"
-__version__ = "1.2.7"
-__date__="18/11/2014"
-#GObject.threads_init()
-#Global variables
-_PIXEL_SIZE = 0.130 #mm
+__version__ = "1.2.8"
+__date__="24/11/2014"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -49,6 +54,10 @@ mpl.rcParams['figure.subplot.left'] = 0.14
 mpl.rcParams['figure.subplot.right'] = 0.915
 #mpl.rcParams['image.cmap'] = jet
 mpl.rcParams['savefig.dpi'] = 300
+
+#Global variables
+_PIXEL_SIZE = 0.130 #mm
+_SPEC_IMG_COL = "img" #column containing image number in spec file
 
 def flat_data(data,dynlow, dynhigh):
 	""" Returns data where maximum superior than 10^dynhigh will be replaced by 10^dynhigh, inferior than 10^dynlow will be replaced by 10^dynlow"""
@@ -171,7 +180,7 @@ def select_files_from_list(s, beg, end):
 		n = int(n)
 		if n in range(beg, end+1):
 			out.append(ss)
-	out.sort()
+	out = sorted(out)
 	return out
 
 def get_index(arr, val):
@@ -242,7 +251,7 @@ class MyMainWindow(gtk.Window):
 		self.sep2 = gtk.SeparatorToolItem()
 		self.zoomtb = gtk.ToggleToolButton(gtk.STOCK_ZOOM_IN)
 		self.hometb = gtk.ToolButton(gtk.STOCK_HOME)
-		self.calibtb = gtk.ToolButton(gtk.STOCK_GO_DOWN)
+		self.aspecttb = gtk.ToolButton(gtk.STOCK_PAGE_SETUP)
 		self.loadcalibtb = gtk.ToolButton(gtk.STOCK_CONVERT)
 
 		self.toolbar.insert(self.opentb, 0)
@@ -252,7 +261,7 @@ class MyMainWindow(gtk.Window):
 		self.toolbar.insert(self.savetb, 3)
 		self.toolbar.insert(self.zoomtb, 4)
 		self.toolbar.insert(self.hometb, 5)
-		self.toolbar.insert(self.calibtb, 6)
+		self.toolbar.insert(self.aspecttb, 6)
 		self.toolbar.insert(self.loadcalibtb, 7)
 
 		self.toolbar.insert(self.sep2, 8)
@@ -265,11 +274,11 @@ class MyMainWindow(gtk.Window):
 		self.tooltips.set_tip(self.quittb,"Quit the program")
 		self.tooltips.set_tip(self.zoomtb,"Zoom in")
 		self.tooltips.set_tip(self.hometb,"Reset image")
-		self.tooltips.set_tip(self.calibtb,"Use this image to calibrate the detector")
+		self.tooltips.set_tip(self.aspecttb,"Change the graph's aspect ratio")
 		self.tooltips.set_tip(self.loadcalibtb,"Load a calibration file (PONI file)")
 
 		#self.newtb.set_sensitive(False)
-		self.calibtb.set_sensitive(False)
+		#self.aspecttb.set_sensitive(False)
 		#self.savetb.set_sensitive(False)
 		self.opentb.connect("clicked", self.choose_folder)
 		self.refreshtb.connect("clicked",self.folder_update)
@@ -277,8 +286,9 @@ class MyMainWindow(gtk.Window):
 		self.quittb.connect("clicked", gtk.main_quit)
 		self.zoomtb.connect("toggled", self.zoom_on)
 		self.hometb.connect("clicked", self.reset_image)
-		self.calibtb.connect("clicked", self.calibration)
+		self.aspecttb.connect("clicked", self.change_aspect_ratio)
 		self.loadcalibtb.connect("clicked", self.load_calibration)
+		self.graph_aspect = False
 
 		############################# BOXES ###############################################
 		vbox = gtk.VBox()
@@ -347,6 +357,8 @@ class MyMainWindow(gtk.Window):
 		self.arb_lines_X=[]
 		self.arb_lines_Y=[]
 		self.arb_line_points=0
+		self.SELECTED_IMG_NUM = None
+		self.IMG_INIT = False
 
 		self.header = {}
 		self.calibrated = False #The detector need to be calibrated using pyFAI program
@@ -354,11 +366,14 @@ class MyMainWindow(gtk.Window):
 		self.fig=Figure(dpi=100)
 		#self.ax  = self.fig.add_subplot(111)
 		self.ax  = self.fig.add_axes([0.12,0.2,0.7,0.7])
+		self.MAIN_XLABEL = self.ax.set_xlabel("X (pixel)")
+		self.MAIN_YLABEL = self.ax.set_ylabel("Y (pixel)")
 		#self.fig.text(0.5, 0.92, self.edf, ha='center', fontsize=26)
 		self.xDim0 = 0
 		self.xDim1 = 560
 		self.yDim0 = 0
 		self.yDim1 = 960
+		self.MAIN_EXTENT = (self.xDim0,self.xDim1,self.yDim0,self.yDim1)
 		self.fig.subplots_adjust(left=0.1,bottom=0.20, top=0.90)
 		self.data = N.zeros(shape=(self.yDim1,self.xDim1))
 		self.vmin = 0
@@ -366,7 +381,7 @@ class MyMainWindow(gtk.Window):
 		self.vmax_range = self.vmax
 
 		#self.init_image()
-		self.img = self.ax.imshow(self.data,origin='lower',vmin=self.vmin, vmax=self.vmax, cmap=jet, interpolation='nearest',aspect='equal')
+		self.img = self.ax.imshow(self.data,origin='lower',vmin=self.vmin, vmax=self.vmax, cmap=jet, interpolation='nearest',aspect='auto')
 
 		self.canvas  = FigureCanvas(self.fig)
 		#self.main_figure_navBar = NavigationToolbar(self.canvas, self)
@@ -397,10 +412,61 @@ class MyMainWindow(gtk.Window):
 		self.mouse_moved = False #If click without move: donot zoom the image
 
 		#self.midle_panel.pack_start(self.main_figure_navBar, False,False, 2)
+		#*********************************** SCAN SLIDER *****************************************
+		#Variables for scan slider:
+		self.SCAN_IMG = []
+		self.SPEC_IMG = []
+		self.SPEC_FILE = ""
+		self.SELECTED_IMG_NUM = None
+		self.SPEC_IS_LOADED = False
+		self.SPEC_DATA = None #SPEC object from xrayutilities.io.SPECFile(specfile)
+		self.SPEC_SCAN_LIST = None #list of all spec scan, each spec scan is an object from spec_data.scan_list 
+		self.SPEC_ACTUAL_SCAN = None #actual scan number
+		self.SPEC_ACTUAL_SCAN_IMG = 0
+		self.DATA_IS_LOADED = False
+		self.SPEC_ACTUAL_SCAN_DATA = []
+		
+		self.scan_slider_frame = gtk.Frame()
+		self.scan_slider_table_align = gtk.Alignment(0,0.5,1,1)
+		self.scan_slider_table_align.set_padding(10,5,5,5)
+		
+		self.scan_slider_frame.set_label("Scan Slider")
+		self.scan_slider_frame.set_label_align(0.5,0.5)
+		self.scan_slider_table = gtk.Table(2,3,False)
+		self.scan_slider_specfile_txt = gtk.Label("Spec file")
+		self.scan_slider_specfile_txt.set_alignment(0,0.5)
+		self.scan_slider_scanNumber_txt = gtk.Label("Scan #")
+		self.scan_slider_scanNumber_txt.set_alignment(0,0.5)
+		self.scan_slider_path = gtk.Entry()
+		self.scan_slider_browseSpec = gtk.Button("Browse spec file")
+		#self.scan_slider_browseSpec.set_size_request(80,-1)
+		self.scan_slider_browseSpec.connect("clicked",self.load_specFile)
+		scan_slider_spin_adj = gtk.Adjustment(1,0,1,1,10,0)#actual, min, max, step increment, page increment, page size
+		
+		self.scan_slider_spinButton = gtk.SpinButton(scan_slider_spin_adj, 1,0)
+		self.scan_slider_imgSlider  = gtk.HScale()
+		self.scan_slider_imgSlider.set_range(0,1)
+		self.scan_slider_imgSlider.set_value(1)
+		self.scan_slider_imgSlider.set_digits(0)
+		self.scan_slider_imgSlider.set_increments(1,1)
+		self.scan_slider_spinButton.set_numeric(True)
+		self.scan_slider_spinButton.connect("value-changed",self.update_scan_slider)
+		self.scan_slider_imgSlider.connect("value-changed", self.slider_plot_scan)
+		
+		self.scan_slider_table.attach(self.scan_slider_specfile_txt, 0,1,0,1)
+		self.scan_slider_table.attach(self.scan_slider_path, 1,2,0,1)
+		self.scan_slider_table.attach(self.scan_slider_browseSpec, 2,3,0,1)
+		self.scan_slider_table.attach(self.scan_slider_scanNumber_txt, 0,1,1,2)
+		self.scan_slider_table.attach(self.scan_slider_spinButton, 1,2,1,2)
+		self.scan_slider_table.attach(self.scan_slider_imgSlider, 2,3,1,2)
+		
+		self.scan_slider_table_align.add(self.scan_slider_table)
+		self.scan_slider_frame.add(self.scan_slider_table_align)
 		
 		self.midle_panel.pack_start(self.geometry_setup_tbl, False,False, 0)
 		self.midle_panel.pack_start(self.geometry_manual, False,False, 2)
 		self.midle_panel.pack_start(self.canvas, True,True, 2)
+		self.midle_panel.pack_start(self.scan_slider_frame, False,False,0)
 		self.page_single_figure.pack_start(self.midle_panel, True,True, 0)
 
 		########################################## Check Buttons RIGHT PANEL ###################
@@ -872,8 +938,8 @@ class MyMainWindow(gtk.Window):
 		self.cax.clear()
 		self.cax2.clear()
 		self.ax.add_patch(self.rect)
-		self.img = self.ax.imshow(self.data,origin='lower',vmin=self.vmin, vmax=self.vmax, cmap=jet, interpolation='nearest',aspect='equal')
-
+		self.img = self.ax.imshow(self.data,origin='lower',vmin=self.vmin, vmax=self.vmax, cmap=jet, interpolation='nearest',aspect='auto')
+		self.img.set_extent(self.MAIN_EXTENT)
 		if self.log_scale == 0:
 			clabel = r'$Intensity\ (Counts\ per\ second)$'
 		else:
@@ -886,8 +952,23 @@ class MyMainWindow(gtk.Window):
 		self.cb2.set_label(clabel, fontsize=18)
 		self.cb2.locator = MaxNLocator(nbins=6)
 		self.cb2.ax.set_visible(False)
+		
+		if self.tth_chi_space_btn.get_active():
+			self.MAIN_XLABEL.set_text("2Theta (deg.)")
+			self.MAIN_YLABEL.set_text("Chi (deg.)")
+		else:
+			self.MAIN_XLABEL.set_text("X (pixel)")
+			self.MAIN_YLABEL.set_text("Y (pixel)")
+		self.IMG_INIT = True
 		#self.cursor = Cursor(self.ax, color='k', linewidth=1, useblit=True)
-    
+		
+	def change_aspect_ratio(self,w):
+		self.graph_aspect = not (self.graph_aspect)
+		if self.graph_aspect == True:
+			self.ax.set_aspect('equal')
+		else:
+			self.ax.set_aspect('auto')
+		self.canvas.draw()
 
 	def popup_info(self,info_type,text):
 		""" info_type = WARNING, INFO, QUESTION, ERROR """
@@ -1072,12 +1153,14 @@ class MyMainWindow(gtk.Window):
 		self.edf_choosen = model[row][0]
 		self.edf = join(self.current_folder,self.edf_choosen)
 		#self.edf_pos.set_text("EDF choosen:  %s"%self.edf_choosen)
-		self.ax.set_title(self.edf_choosen,fontsize=20)
+		try:
+			self.MAIN_TITLE.set_text(self.edf_choosen,fontsize=20)
+		except:
+			self.MAIN_TITLE = self.ax.set_title(self.edf_choosen,fontsize=20)
+		#self.MAIN_TITLE = self.fig.suptitle(self.edf_choosen)
 		### Data Loading #########
 		self.fabioIMG = fabio.open(self.edf)
-		#self.data = self.fabioIMG.data
 		self.header = self.fabioIMG.header
-
 		
 		#print self.header
 		if self.detector_type != "D1":
@@ -1123,9 +1206,144 @@ class MyMainWindow(gtk.Window):
 				self.mu_pos.set_text("%s: %.2f"%("Zdet",self.motor['Zdet']))
 			self.time_pos.set_text("Seconds:  %d"%self.count_time)
 		gc.collect() # Clear unused variables
+		#self.data = self.fabioIMG.data
 		self.plot_data()
+		num = self.edf_choosen.split("_")[1]
+		num = num.split(".")[0]
+		self.SELECTED_IMG_NUM = int(num)
+		if self.SPEC_IS_LOADED and len(self.SPEC_IMG) != 0:
+			self.check_and_update_scan_slider()
+		return
 
+	def load_specFile(self,widget):
+		dialog = gtk.FileChooserDialog("Select spec file",None,gtk.FILE_CHOOSER_ACTION_OPEN,(gtk.STOCK_CANCEL,gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
+		dialog.set_current_folder(self.current_folder)
+		response = dialog.run()
+		if response == gtk.RESPONSE_OK:
+			file_choosen = dialog.get_filename()
+			self.scan_slider_path.set_text(file_choosen)
+			self.SPEC_FILE = file_choosen
+		else:
+			pass
+		dialog.destroy()
+		while gtk.events_pending():
+			gtk.main_iteration()
+		self.SPEC_DATA = xrayutilities.io.SPECFile(self.SPEC_FILE)
+		self.update_spec_data()
+		
+		return
 	
+	def update_spec_data(self):
+		self.SPEC_IMG = []
+		self.SPEC_SCAN_LIST = self.SPEC_DATA.scan_list
+		first_scan_num = self.SPEC_SCAN_LIST[0].nr
+		last_scan_num = self.SPEC_SCAN_LIST[-1].nr
+		self.SPEC_SCAN_RANGE = (first_scan_num, last_scan_num)
+		#print first_scan_num, last_scan_num
+		self.SPEC_SCAN_NUM_LIST = []
+		for i in range(len(self.SPEC_SCAN_LIST)):
+			item = self.SPEC_SCAN_LIST[i]
+			self.SPEC_SCAN_NUM_LIST.append(item.nr)
+			if item.scan_status == 'OK':
+				item.ReadData()
+				this_img_list = item.data[_SPEC_IMG_COL]
+				this_img_list = this_img_list.astype('int')
+			else:
+				this_img_list = []
+			self.SPEC_IMG.append(this_img_list)
+			
+		self.SPEC_IS_LOADED = True
+		self.scan_slider_spinButton.set_range(self.SPEC_SCAN_RANGE[0], self.SPEC_SCAN_RANGE[1])
+		
+		#print "SPEC_IMG len: ",len(self.SPEC_IMG)
+		#print "SPEC SCAN NUM LIST: ",self.SPEC_SCAN_NUM_LIST
+		self.check_and_update_scan_slider()
+		return
+	
+	def update_scan_slider(self,widget):
+		self.update_scan_slider_now()
+		return
+	
+	def update_scan_slider_now(self):
+		actual_scan_num = self.scan_slider_spinButton.get_value()
+		for i in range(len(self.SPEC_SCAN_NUM_LIST)):
+			if actual_scan_num == self.SPEC_SCAN_NUM_LIST[i]:
+				self.SPEC_ACTUAL_SCAN = self.SPEC_SCAN_LIST[i]
+				break
+		#print "Actual scan number: ", self.SPEC_ACTUAL_SCAN.nr
+		
+		self.SPEC_ACTUAL_SCAN.ReadData()
+		self.SPEC_ACTUAL_SCAN_IMG = self.SPEC_ACTUAL_SCAN.data[_SPEC_IMG_COL]
+		self.SPEC_ACTUAL_SCAN_IMG = self.SPEC_ACTUAL_SCAN_IMG.astype('int')
+		#print "Actual scan images: ",self.SPEC_ACTUAL_SCAN_IMG
+		actual_img_num  = self.SELECTED_IMG_NUM
+		if actual_img_num == None or actual_img_num not in self.SPEC_ACTUAL_SCAN_IMG:
+			actual_img_num = self.SPEC_ACTUAL_SCAN_IMG[0]
+		
+		while gtk.events_pending():
+			gtk.main_iteration()
+		self.scan_slider_imgSlider.set_range(self.SPEC_ACTUAL_SCAN_IMG[0], self.SPEC_ACTUAL_SCAN_IMG[-1])
+		self.scan_slider_imgSlider.set_value(actual_img_num)
+		#print "Actual image number: ",actual_img_num
+		
+		self.SPEC_ACTUAL_SCAN_DATA = []
+		try:
+			self.SPEC_ACTUAL_SCAN_IMG_NAMES = select_files_from_list(self.store, self.SPEC_ACTUAL_SCAN_IMG[0], self.SPEC_ACTUAL_SCAN_IMG[-1])
+			img_list = self.SPEC_ACTUAL_SCAN_IMG_NAMES
+			for j in range(len(img_list)):
+				edf = join(self.current_folder, img_list[j])
+				data= fabio.open(edf).data
+				self.SPEC_ACTUAL_SCAN_DATA.append(data)
+			self.SPEC_ACTUAL_SCAN_DATA = N.asarray(self.SPEC_ACTUAL_SCAN_DATA)
+			#print "Test if SCAN DATA is loaded: ",self.SPEC_ACTUAL_SCAN_DATA.shape
+		except:
+			self.popup_info("warning","Attention: Data not found for this scan.")
+		
+		self.SPEC_SCAN_MOTOR_NAME = self.SPEC_ACTUAL_SCAN.colnames[0]
+		self.SPEC_SCAN_MOTOR_DATA = self.SPEC_ACTUAL_SCAN.data[self.SPEC_SCAN_MOTOR_NAME]
+		if not self.IMG_INIT:
+			self.init_image()
+		return
+	
+	def check_and_update_scan_slider(self):
+		if self.DATA_IS_LOADED and self.SELECTED_IMG_NUM != None:
+			for i in range(len(self.SPEC_IMG)):
+				if self.SELECTED_IMG_NUM in self.SPEC_IMG[i]:
+					self.SPEC_ACTUAL_SCAN = self.SPEC_SCAN_LIST[i]
+					break
+			
+		else:
+			self.SPEC_ACTUAL_SCAN = self.SPEC_SCAN_LIST[-1]
+			
+		self.scan_slider_spinButton.set_value(self.SPEC_ACTUAL_SCAN.nr)
+		self.update_scan_slider_now()
+	
+	def slider_plot_scan(self, widget):
+		self.plot_scan()
+		
+	def plot_scan(self):
+		try:
+			img_num = self.scan_slider_imgSlider.get_value()
+			#print "Image number: ",img_num
+			img_index = N.where(self.SPEC_ACTUAL_SCAN_IMG == img_num)
+			img_index = img_index[0][0]
+			self.data = self.SPEC_ACTUAL_SCAN_DATA[img_index]
+			if self.adj_btn.get_active():
+				if self.data.shape == (960,560) or self.data.shape == (120,560):
+					self.data = self.correct_geometry(self.data)
+			if self.horizontal_detector:
+				self.data = N.rot90(self.data)
+			this_title = self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]
+			scan_motor = self.SPEC_SCAN_MOTOR_NAME
+			this_motor_value = self.SPEC_SCAN_MOTOR_DATA[img_index]
+			this_title = this_title +" - %s = %s"%(scan_motor, this_motor_value)
+			self.MAIN_TITLE.set_text(this_title)
+			self.scale_plot()
+			self.canvas.draw()
+			self.fabioIMG = fabio.open(join(self.current_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]))
+		except:
+			pass
+		#return
 	
 	def change_scale(self,button, data):
 		if button.get_active():
@@ -1179,55 +1397,9 @@ class MyMainWindow(gtk.Window):
 	def scale_plot(self):
 		data = self.data.copy()
 		data = self.change_scale(self.linear_scale_btn, data)
-		"""
-		if self.linear_scale_btn.get_active():
-			self.linear_scale_btn.set_label("Log scale")
-			data = N.log10(data+1e-6)
-			self.img.set_data(data)
-			actual_vmin = self.sld_vmin.get_value()
-			actual_vmax = self.sld_vmax.get_value()
-			#print data
-			#print "Log scale called. Actual VMAX: ",actual_vmax
-			self.vmax = N.log10(actual_vmax) if self.log_scale == 0 else actual_vmax
-			if actual_vmin == 0:
-				self.vmin=0
-			elif actual_vmin >0:
-				self.vmin = N.log10(actual_vmin) if self.log_scale == 0 else actual_vmin
-
-			#vmax_range = N.max(data[N.isfinite(data)])
-			self.vmax_range = data.max()
-			#self.vmax_range = self.vmax_range if self.vmax_range < 8*med_log else 8*med_log
-			self.log_scale = 1
-
-		else:
-			self.linear_scale_btn.set_label("Linear scale")
-			self.img.set_data(data)
-			actual_vmin = self.sld_vmin.get_value()
-			actual_vmax = self.sld_vmax.get_value()
-			#print "Linear scale called, Actual vmax: ",actual_vmax
-			if self.log_scale == 0:
-				self.vmax = actual_vmax
-			elif self.log_scale == 1:
-				self.vmax = N.power(10.,actual_vmax)
-			#print data
-			self.vmax_range = data.max()
-			#vmax_range = N.max(data[N.isfinite(data)])
-			#if self.vmax_range > 100*med_lin:
-			#       self.vmax_range = 100*med_lin
-
-			if actual_vmin ==0:
-				self.vmin = 0
-			elif actual_vmin>0:
-				if self.log_scale == 0:
-					self.vmin = actual_vmin
-				elif self.log_scale == 1:
-					self.vmin = N.power(10.,actual_vmin)
-			self.log_scale = 0
-
-		self.sld_vmax.set_range(0,self.vmax_range)
-		self.sld_vmin.set_range(0,self.vmax_range)
-		"""
 		self.img.set_data(data)
+		#self.img.set_extent(self.MAIN_EXTENT)
+		#self.canvas.draw()
     
 	def log_update(self,widget):
 		self.scale_plot()
@@ -1263,9 +1435,13 @@ class MyMainWindow(gtk.Window):
 				self.vmin_spin_btn.set_adjustment(gtk.Adjustment(self.vmin, 0, self.vmax_range, 10, 100, 0))
 				self.vmax_spin_btn.set_adjustment(gtk.Adjustment(self.vmax, 0, self.vmax_range, 10, 100, 0))
 			self.vmax_spin_btn.update()
-
+			
 			self.ax.relim()
+			self.img.set_extent(self.MAIN_EXTENT)
+			self.ax.set_xlim(self.MAIN_EXTENT[0], self.MAIN_EXTENT[1])
+			self.ax.set_ylim(self.MAIN_EXTENT[2], self.MAIN_EXTENT[3])
 			self.canvas.draw()
+			#self.ax.figure.canvas.draw_idle()
 		elif self.notebook.get_current_page() == 1:
 			self.polar_img.set_clim(self.vmin, self.vmax)
 			self.sld_vmax.set_value(self.vmax)
@@ -1355,6 +1531,12 @@ class MyMainWindow(gtk.Window):
 				self.show_d_txt.set_text("d = %.4f A"%d)
 
 	def plot_update(self,widget):
+		if self.tth_chi_space_btn.get_active():
+			self.MAIN_XLABEL.set_text("2Theta (deg.)")
+			self.MAIN_YLABEL.set_text("Chi (deg.)")
+		else:
+			self.MAIN_XLABEL.set_text("X (pixel)")
+			self.MAIN_YLABEL.set_text("Y (pixel)")
 		self.plot_data()
 
 	def zoom_on(self,widget):
@@ -1399,17 +1581,19 @@ class MyMainWindow(gtk.Window):
 		self.xDim1 = self.data.shape[1]
 		self.yDim0 = 0
 		self.yDim1 = self.data.shape[0]
+		if self.tth_chi_space_btn.get_active():
+			self.xDim0 = self.tth_pyFAI.min()
+			self.xDim1 = self.tth_pyFAI.max()
+			self.yDim0 = self.chi_pyFAI.min()
+			self.yDim1 = self.chi_pyFAI.max()
+			
+		self.MAIN_EXTENT = (self.xDim0,self.xDim1,self.yDim0, self.yDim1)
 		self.ax.set_xlim(self.xDim0,self.xDim1)
 		if self.detector_type=="S70":
 			self.ax.set_ylim(self.yDim1,self.yDim0)
 		else:
 			self.ax.set_ylim(self.yDim0,self.yDim1)
-		"""
-		if self.horizontal_detector == True:
-			self.cb.ax.set_visible(False)
-		else:
-			self.cb.ax.set_visible(True)
-		"""
+		self.img.set_extent(self.MAIN_EXTENT)
 		if self.data.shape[0] < self.data.shape[1]:
 			self.cb.ax.set_visible(False)
 			self.cb2.ax.set_visible(True)
@@ -1427,10 +1611,12 @@ class MyMainWindow(gtk.Window):
 		if response==gtk.RESPONSE_OK:
 			folder=dialog.get_filename()
 			folder_basename = folder.split("/")[-1]
-			#print folder_basename
+			#print folder
 			self.store= [i for i in listdir(folder) if isfile(join(folder,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
+			#print self.store
+			self.store = sorted(self.store)
 			self.current_folder = folder
-			#print store
+			#print self.store
 			if len(self.store)>0:
 				self.list_store.clear()
 				for i in self.store:
@@ -1438,6 +1624,10 @@ class MyMainWindow(gtk.Window):
 				self.TVcolumn.set_title(folder_basename)
 			else:
 				pass
+			self.DATA_IS_LOADED = True
+			if self.SPEC_DATA:
+				self.SPEC_DATA.Update()
+				self.update_spec_data()
 		else:
 			pass
 		dialog.destroy()
@@ -1446,11 +1636,16 @@ class MyMainWindow(gtk.Window):
 		folder = self.current_folder
 		if folder is not os.getcwd():
 			store= [i for i in listdir(folder) if isfile(join(folder,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
+			store = sorted(store)
 			self.store=[]
 			self.list_store.clear()
 			for i in store:
 				self.list_store.append([i])
 				self.store.append(i)
+			self.DATA_IS_LOADED = True
+			if self.SPEC_DATA:
+				self.SPEC_DATA.Update()
+				self.update_spec_data()
 		#return 1
 
 	def save_image(self,widget):
@@ -1497,10 +1692,7 @@ class MyMainWindow(gtk.Window):
 
 	def plot_data(self):
 		"""plot the selected edf image"""
-
 		self.data = self.fabioIMG.data
-		#self.data = flat_data(self.data, 0,5)
-
 		if self.adj_btn.get_active():
 			adjust = True
 		else:
@@ -1554,6 +1746,17 @@ class MyMainWindow(gtk.Window):
 			self.detector.reshape_pixels()
 			self.data = self.detector.physical.data
 
+		imshape = self.data.shape
+		self.xDim0=0
+		self.yDim0=0
+		if self.horizontal_detector == True and imshape != (578,1148):
+			self.xDim1 = imshape[0]
+			self.yDim1 = imshape[1]
+			self.data = N.rot90(self.data) #rotation in the clock-wise direction - right rotation
+		else:
+			self.xDim1 = imshape[1]
+			self.yDim1 = imshape[0]
+		self.MAIN_EXTENT = (self.xDim0, self.xDim1, self.yDim0, self.yDim1)
 		
 		if self.tth_chi_space_btn.get_active():
 			if self.calibrated == False:
@@ -1580,23 +1783,14 @@ class MyMainWindow(gtk.Window):
 				else:
 					self.popup_info('warning','Please adjust the image to proceed this operation!')
 					self.tth_chi_space_btn.set_active(False)
-
+				
+				self.MAIN_EXTENT = (self.tth_pyFAI.min(), self.tth_pyFAI.max(), self.chi_pyFAI.min(), self.chi_pyFAI.max())
+				#print self.MAIN_EXTENT
 		else:
 			self.show_chi_delta_btn.set_sensitive(True)
 			self.show_chi_delta_flag = self.show_chi_delta_btn.get_active()
 
-
-		imshape = self.data.shape
-		self.xDim0=0
-		self.yDim0=0
-		if self.horizontal_detector == True and imshape != (578,1148):
-			self.xDim1 = imshape[0]
-			self.yDim1 = imshape[1]
-			self.data = N.rot90(self.data) #rotation in the clock-wise direction - right rotation
-		else:
-			self.xDim1 = imshape[1]
-			self.yDim1 = imshape[0]
-
+		
 		self.scale_plot()
 
 		if self.data.shape[0] < self.data.shape[1]:
@@ -1605,12 +1799,12 @@ class MyMainWindow(gtk.Window):
 		else:
 			self.cb.ax.set_visible(True)
 			self.cb2.ax.set_visible(False)
-		self.img.set_extent((0,self.xDim1,0,self.yDim1))
-		self.ax.set_xlim(0,self.xDim1)
-		if self.detector_type in ["D5", "D1"]:
-			self.ax.set_ylim(0,self.yDim1)
-		elif self.detector_type=="S70":
-			self.ax.set_ylim(self.yDim1,0)
+		#self.img.set_extent(self.MAIN_EXTENT)
+		#self.ax.set_xlim(0,self.xDim1)
+		#if self.detector_type in ["D5", "D1"]:
+			#self.ax.set_ylim(0,self.yDim1)
+		#elif self.detector_type=="S70":
+			#self.ax.set_ylim(self.yDim1,0)
 		self.slider_update()
 
 	def plot_profiles(self, x, y, cross_line=True):
@@ -1623,7 +1817,10 @@ class MyMainWindow(gtk.Window):
 			self.lines.append(hline)
 			vline = self.ax.axvline(x, color='k', ls='--', lw=1)
 			self.lines.append(vline)
-
+			
+			if self.tth_chi_space_btn.get_active():
+				x = get_index(self.tth_pyFAI,x)
+				y = get_index(self.chi_pyFAI,y)
 			x= int(x)
 			y= int(y)        
 
@@ -1958,7 +2155,7 @@ class MyMainWindow(gtk.Window):
 		detector.set_physical_data()
 		detector.reshape_pixels()
 		data = detector.physical.data
-		data = N.rot90(data)
+		#data = N.rot90(data)
 		return data
 		   
 	def load_data(self, img_deb, img_fin, pole_2theta, plot_chi_min, logscale=0):
@@ -1981,6 +2178,11 @@ class MyMainWindow(gtk.Window):
 		elif self.detector_type == "S70":
 			first_dim = 120
 			second_dim= 578
+		#if not self.horizontal_detector:
+			#temp=first_dim
+			#first_dim = second_dim
+			#second_dim = temp
+			
 		total = len(img_list)
 		processed = 0.
 		for j in range(len(img_list)):
@@ -1998,6 +2200,7 @@ class MyMainWindow(gtk.Window):
 				self.azimuthalIntegration.rot3 = rot3
 				if img.data.shape == (960,560):
 					data = self.correct_geometry(img.data)
+					data = N.rot90(data)
 					img.data = data 
 					
 				I,tth,chi = self.azimuthalIntegration.integrate2d(img.data,first_dim,second_dim,unit="2th_deg")

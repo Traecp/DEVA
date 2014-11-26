@@ -1,10 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-######## Dependencies ######
-### lmfit : sudo easy_install -U lmfit
 
 __author__ = 'Tra NGUYEN THANH <thanh-tra.nguyen@esrf.fr>'
-__version__ = '1.2.7'
+__version__ = '1.2.8'
 __adv__ = 'setup.py'
 
 
@@ -136,11 +134,7 @@ ext_modules = [Extension(**splitBBox_dic),
 name = 'DEVA'
 
 # Packages (subdirectories in lib/)
-packages = [name, name+'.pyFAI', name+'.utilities', name+'.xpad']
-#packages = ['pyFAI', 'utilities', 'xpad']
-
-# Modules (files in lib/)
-#modules = ['libXpad','ColoredText','Statistics', 'det_mask', 'xpad3_geometry', 'xpad3_spec']
+packages = [name, name+'.pyFAI', name+'.utilities', name+'.xpad', name+'.xrayutilities', name+'.xrayutilities/io']
 
 # Scripts (in scripts/)
 scripts = ['Deva.py', 'xpad3_geometry.py']
@@ -159,8 +153,9 @@ setup(name=name,
       url='http://esrf.fr/',
       license="CeCILL-C FREE SOFTWARE LICENSE",
       packages=packages,
-      #package_dir = {'':'lib'},
-      #py_modules=['.'.join((name, mod)) for mod in modules], # Individual modules
+      package_data={
+        "DEVA/xrayutilities": ["*.conf"]
+        },
       scripts=['scripts/'+script for script in scripts],
       # Data - setuptools specific
       ext_package = name+'/pyFAI',

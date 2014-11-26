@@ -251,7 +251,7 @@ class MyMainWindow(gtk.Window):
 		self.sep2 = gtk.SeparatorToolItem()
 		self.zoomtb = gtk.ToggleToolButton(gtk.STOCK_ZOOM_IN)
 		self.hometb = gtk.ToolButton(gtk.STOCK_HOME)
-		self.calibtb = gtk.ToolButton(gtk.STOCK_GO_DOWN)
+		self.aspecttb = gtk.ToolButton(gtk.STOCK_PAGE_SETUP)
 		self.loadcalibtb = gtk.ToolButton(gtk.STOCK_CONVERT)
 
 		self.toolbar.insert(self.opentb, 0)
@@ -261,7 +261,7 @@ class MyMainWindow(gtk.Window):
 		self.toolbar.insert(self.savetb, 3)
 		self.toolbar.insert(self.zoomtb, 4)
 		self.toolbar.insert(self.hometb, 5)
-		self.toolbar.insert(self.calibtb, 6)
+		self.toolbar.insert(self.aspecttb, 6)
 		self.toolbar.insert(self.loadcalibtb, 7)
 
 		self.toolbar.insert(self.sep2, 8)
@@ -274,11 +274,11 @@ class MyMainWindow(gtk.Window):
 		self.tooltips.set_tip(self.quittb,"Quit the program")
 		self.tooltips.set_tip(self.zoomtb,"Zoom in")
 		self.tooltips.set_tip(self.hometb,"Reset image")
-		self.tooltips.set_tip(self.calibtb,"Use this image to calibrate the detector")
+		self.tooltips.set_tip(self.aspecttb,"Change the graph's aspect ratio")
 		self.tooltips.set_tip(self.loadcalibtb,"Load a calibration file (PONI file)")
 
 		#self.newtb.set_sensitive(False)
-		self.calibtb.set_sensitive(False)
+		#self.aspecttb.set_sensitive(False)
 		#self.savetb.set_sensitive(False)
 		self.opentb.connect("clicked", self.choose_folder)
 		self.refreshtb.connect("clicked",self.folder_update)
@@ -286,8 +286,9 @@ class MyMainWindow(gtk.Window):
 		self.quittb.connect("clicked", gtk.main_quit)
 		self.zoomtb.connect("toggled", self.zoom_on)
 		self.hometb.connect("clicked", self.reset_image)
-		self.calibtb.connect("clicked", self.calibration)
+		self.aspecttb.connect("clicked", self.change_aspect_ratio)
 		self.loadcalibtb.connect("clicked", self.load_calibration)
+		self.graph_aspect = False
 
 		############################# BOXES ###############################################
 		vbox = gtk.VBox()
@@ -365,11 +366,14 @@ class MyMainWindow(gtk.Window):
 		self.fig=Figure(dpi=100)
 		#self.ax  = self.fig.add_subplot(111)
 		self.ax  = self.fig.add_axes([0.12,0.2,0.7,0.7])
+		self.MAIN_XLABEL = self.ax.set_xlabel("X (pixel)")
+		self.MAIN_YLABEL = self.ax.set_ylabel("Y (pixel)")
 		#self.fig.text(0.5, 0.92, self.edf, ha='center', fontsize=26)
 		self.xDim0 = 0
 		self.xDim1 = 560
 		self.yDim0 = 0
 		self.yDim1 = 960
+		self.MAIN_EXTENT = (self.xDim0,self.xDim1,self.yDim0,self.yDim1)
 		self.fig.subplots_adjust(left=0.1,bottom=0.20, top=0.90)
 		self.data = N.zeros(shape=(self.yDim1,self.xDim1))
 		self.vmin = 0
@@ -377,7 +381,7 @@ class MyMainWindow(gtk.Window):
 		self.vmax_range = self.vmax
 
 		#self.init_image()
-		self.img = self.ax.imshow(self.data,origin='lower',vmin=self.vmin, vmax=self.vmax, cmap=jet, interpolation='nearest',aspect='equal')
+		self.img = self.ax.imshow(self.data,origin='lower',vmin=self.vmin, vmax=self.vmax, cmap=jet, interpolation='nearest',aspect='auto')
 
 		self.canvas  = FigureCanvas(self.fig)
 		#self.main_figure_navBar = NavigationToolbar(self.canvas, self)
@@ -934,8 +938,8 @@ class MyMainWindow(gtk.Window):
 		self.cax.clear()
 		self.cax2.clear()
 		self.ax.add_patch(self.rect)
-		self.img = self.ax.imshow(self.data,origin='lower',vmin=self.vmin, vmax=self.vmax, cmap=jet, interpolation='nearest',aspect='equal')
-
+		self.img = self.ax.imshow(self.data,origin='lower',vmin=self.vmin, vmax=self.vmax, cmap=jet, interpolation='nearest',aspect='auto')
+		self.img.set_extent(self.MAIN_EXTENT)
 		if self.log_scale == 0:
 			clabel = r'$Intensity\ (Counts\ per\ second)$'
 		else:
@@ -949,9 +953,22 @@ class MyMainWindow(gtk.Window):
 		self.cb2.locator = MaxNLocator(nbins=6)
 		self.cb2.ax.set_visible(False)
 		
+		if self.tth_chi_space_btn.get_active():
+			self.MAIN_XLABEL.set_text("2Theta (deg.)")
+			self.MAIN_YLABEL.set_text("Chi (deg.)")
+		else:
+			self.MAIN_XLABEL.set_text("X (pixel)")
+			self.MAIN_YLABEL.set_text("Y (pixel)")
 		self.IMG_INIT = True
 		#self.cursor = Cursor(self.ax, color='k', linewidth=1, useblit=True)
-    
+		
+	def change_aspect_ratio(self,w):
+		self.graph_aspect = not (self.graph_aspect)
+		if self.graph_aspect == True:
+			self.ax.set_aspect('equal')
+		else:
+			self.ax.set_aspect('auto')
+		self.canvas.draw()
 
 	def popup_info(self,info_type,text):
 		""" info_type = WARNING, INFO, QUESTION, ERROR """
@@ -1381,6 +1398,8 @@ class MyMainWindow(gtk.Window):
 		data = self.data.copy()
 		data = self.change_scale(self.linear_scale_btn, data)
 		self.img.set_data(data)
+		#self.img.set_extent(self.MAIN_EXTENT)
+		#self.canvas.draw()
     
 	def log_update(self,widget):
 		self.scale_plot()
@@ -1416,9 +1435,13 @@ class MyMainWindow(gtk.Window):
 				self.vmin_spin_btn.set_adjustment(gtk.Adjustment(self.vmin, 0, self.vmax_range, 10, 100, 0))
 				self.vmax_spin_btn.set_adjustment(gtk.Adjustment(self.vmax, 0, self.vmax_range, 10, 100, 0))
 			self.vmax_spin_btn.update()
-
+			
 			self.ax.relim()
+			self.img.set_extent(self.MAIN_EXTENT)
+			self.ax.set_xlim(self.MAIN_EXTENT[0], self.MAIN_EXTENT[1])
+			self.ax.set_ylim(self.MAIN_EXTENT[2], self.MAIN_EXTENT[3])
 			self.canvas.draw()
+			#self.ax.figure.canvas.draw_idle()
 		elif self.notebook.get_current_page() == 1:
 			self.polar_img.set_clim(self.vmin, self.vmax)
 			self.sld_vmax.set_value(self.vmax)
@@ -1508,9 +1531,12 @@ class MyMainWindow(gtk.Window):
 				self.show_d_txt.set_text("d = %.4f A"%d)
 
 	def plot_update(self,widget):
-		#if len(self.SPEC_ACTUAL_SCAN_DATA) !=0:
-			#self.plot_scan()
-		#else:
+		if self.tth_chi_space_btn.get_active():
+			self.MAIN_XLABEL.set_text("2Theta (deg.)")
+			self.MAIN_YLABEL.set_text("Chi (deg.)")
+		else:
+			self.MAIN_XLABEL.set_text("X (pixel)")
+			self.MAIN_YLABEL.set_text("Y (pixel)")
 		self.plot_data()
 
 	def zoom_on(self,widget):
@@ -1555,17 +1581,19 @@ class MyMainWindow(gtk.Window):
 		self.xDim1 = self.data.shape[1]
 		self.yDim0 = 0
 		self.yDim1 = self.data.shape[0]
+		if self.tth_chi_space_btn.get_active():
+			self.xDim0 = self.tth_pyFAI.min()
+			self.xDim1 = self.tth_pyFAI.max()
+			self.yDim0 = self.chi_pyFAI.min()
+			self.yDim1 = self.chi_pyFAI.max()
+			
+		self.MAIN_EXTENT = (self.xDim0,self.xDim1,self.yDim0, self.yDim1)
 		self.ax.set_xlim(self.xDim0,self.xDim1)
 		if self.detector_type=="S70":
 			self.ax.set_ylim(self.yDim1,self.yDim0)
 		else:
 			self.ax.set_ylim(self.yDim0,self.yDim1)
-		"""
-		if self.horizontal_detector == True:
-			self.cb.ax.set_visible(False)
-		else:
-			self.cb.ax.set_visible(True)
-		"""
+		self.img.set_extent(self.MAIN_EXTENT)
 		if self.data.shape[0] < self.data.shape[1]:
 			self.cb.ax.set_visible(False)
 			self.cb2.ax.set_visible(True)
@@ -1718,6 +1746,17 @@ class MyMainWindow(gtk.Window):
 			self.detector.reshape_pixels()
 			self.data = self.detector.physical.data
 
+		imshape = self.data.shape
+		self.xDim0=0
+		self.yDim0=0
+		if self.horizontal_detector == True and imshape != (578,1148):
+			self.xDim1 = imshape[0]
+			self.yDim1 = imshape[1]
+			self.data = N.rot90(self.data) #rotation in the clock-wise direction - right rotation
+		else:
+			self.xDim1 = imshape[1]
+			self.yDim1 = imshape[0]
+		self.MAIN_EXTENT = (self.xDim0, self.xDim1, self.yDim0, self.yDim1)
 		
 		if self.tth_chi_space_btn.get_active():
 			if self.calibrated == False:
@@ -1744,23 +1783,14 @@ class MyMainWindow(gtk.Window):
 				else:
 					self.popup_info('warning','Please adjust the image to proceed this operation!')
 					self.tth_chi_space_btn.set_active(False)
-
+				
+				self.MAIN_EXTENT = (self.tth_pyFAI.min(), self.tth_pyFAI.max(), self.chi_pyFAI.min(), self.chi_pyFAI.max())
+				#print self.MAIN_EXTENT
 		else:
 			self.show_chi_delta_btn.set_sensitive(True)
 			self.show_chi_delta_flag = self.show_chi_delta_btn.get_active()
 
-
-		imshape = self.data.shape
-		self.xDim0=0
-		self.yDim0=0
-		if self.horizontal_detector == True and imshape != (578,1148):
-			self.xDim1 = imshape[0]
-			self.yDim1 = imshape[1]
-			self.data = N.rot90(self.data) #rotation in the clock-wise direction - right rotation
-		else:
-			self.xDim1 = imshape[1]
-			self.yDim1 = imshape[0]
-
+		
 		self.scale_plot()
 
 		if self.data.shape[0] < self.data.shape[1]:
@@ -1769,12 +1799,12 @@ class MyMainWindow(gtk.Window):
 		else:
 			self.cb.ax.set_visible(True)
 			self.cb2.ax.set_visible(False)
-		self.img.set_extent((0,self.xDim1,0,self.yDim1))
-		self.ax.set_xlim(0,self.xDim1)
-		if self.detector_type in ["D5", "D1"]:
-			self.ax.set_ylim(0,self.yDim1)
-		elif self.detector_type=="S70":
-			self.ax.set_ylim(self.yDim1,0)
+		#self.img.set_extent(self.MAIN_EXTENT)
+		#self.ax.set_xlim(0,self.xDim1)
+		#if self.detector_type in ["D5", "D1"]:
+			#self.ax.set_ylim(0,self.yDim1)
+		#elif self.detector_type=="S70":
+			#self.ax.set_ylim(self.yDim1,0)
 		self.slider_update()
 
 	def plot_profiles(self, x, y, cross_line=True):
@@ -1787,7 +1817,10 @@ class MyMainWindow(gtk.Window):
 			self.lines.append(hline)
 			vline = self.ax.axvline(x, color='k', ls='--', lw=1)
 			self.lines.append(vline)
-
+			
+			if self.tth_chi_space_btn.get_active():
+				x = get_index(self.tth_pyFAI,x)
+				y = get_index(self.chi_pyFAI,y)
 			x= int(x)
 			y= int(y)        
 
