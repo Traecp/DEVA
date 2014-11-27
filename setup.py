@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 __author__ = 'Tra NGUYEN THANH <thanh-tra.nguyen@esrf.fr>'
-__version__ = '1.2.8'
+__version__ = '1.2.9'
 __adv__ = 'setup.py'
 
 
@@ -154,7 +154,7 @@ setup(name=name,
       license="CeCILL-C FREE SOFTWARE LICENSE",
       packages=packages,
       package_data={
-        "DEVA/xrayutilities": ["*.conf"]
+        "DEVA": ["xrayutilities/*.conf"]
         },
       scripts=['scripts/'+script for script in scripts],
       # Data - setuptools specific
