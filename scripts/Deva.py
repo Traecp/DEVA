@@ -3,7 +3,7 @@
 ################ DEVA software: D2AM Edf images Visualisation and Analysis ##############
 ###### Dependencies: numpy, scipy, matplotlib, lmfit (sudo easy_install -U lmfit), pyFAI, fabio, Basemap
 #from gi.repository import GObject
-import gtk,gobject
+import gtk,gobject,threading, time
 import os
 import gc
 from os import listdir
@@ -40,8 +40,8 @@ except:
 	from DEVA import xrayutilities
 
 __author__="Tra NGUYEN THANH"
-__version__ = "1.2.8"
-__date__="24/11/2014"
+__version__ = "1.2.9"
+__date__="26/11/2014"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -207,6 +207,22 @@ def get_counters(header):
 	for i in range(len(counter_name)):
 		counters[counter_name[i]] = float(counter_value[i])
 	return counters
+
+def get_img_list(edf_list):
+	""" Get a list of image numbers from an image_name list """
+	out = []
+	for i in range(len(edf_list)):
+		edf = edf_list[i]
+		if edf != None:
+			l = edf.split("_")
+			l = l[1]
+			n = l.split(".")[0]
+			n = int(n)
+			out.append(n)
+		else:
+			out.append(None)
+	#out = N.asarray(out)
+	return N.asarray(out)
 	
 class MyMainWindow(gtk.Window):
 
@@ -217,7 +233,7 @@ class MyMainWindow(gtk.Window):
 		#self.modify_bg(gtk.STATE_NORMAL, gtk.gdk.Color(6400, 6400, 6440))
 		self.set_position(gtk.WIN_POS_CENTER)
 		self.set_border_width(10)
-		#self.set_icon_from_file('d2am.jpg')
+		#self.set_icon_from_file('DEVA/D2AM.jpg')
 		##################### TOOL BAR ####################################################
 		self.detector_type = "D5" # My detector by default is XPAD D5
 		self.menubar = gtk.MenuBar()
@@ -301,9 +317,11 @@ class MyMainWindow(gtk.Window):
 		self.sw.set_policy(gtk.POLICY_NEVER, gtk.POLICY_AUTOMATIC)
 
 		hbox.pack_start(self.sw, False, False, 0)
-		self.store=[]
-		self.list_store = gtk.ListStore(str)
-		self.treeView = gtk.TreeView(self.list_store)
+		self.store={}
+		self.MODEL = gtk.TreeStore(str)
+		#self.list_store = gtk.ListStore(str)
+		#self.treeView = gtk.TreeView(self.list_store)
+		self.treeView = gtk.TreeView(self.MODEL)
 		self.treeView.connect("row-activated",self.on_changed_edf)
 
 		rendererText = gtk.CellRendererText()
@@ -312,8 +330,12 @@ class MyMainWindow(gtk.Window):
 		self.treeView.append_column(self.TVcolumn)
 
 		self.sw.add(self.treeView)
+		self.threads = list()  # I made this be part of the full application
+		""" That allows us to wait for all threads on close-down, don't know how
+		necessary it is."""
 
 		self.current_folder = os.getcwd()
+		self.edf_folder     = self.current_folder
 		#if self.current_folder is not os.getcwd():
 		#	glib.timeout_add_seconds(5, self.folder_update)
 		############################# NOTEBOOK ################################################
@@ -959,6 +981,12 @@ class MyMainWindow(gtk.Window):
 		else:
 			self.MAIN_XLABEL.set_text("X (pixel)")
 			self.MAIN_YLABEL.set_text("Y (pixel)")
+		
+		if self.graph_aspect == True:
+			self.ax.set_aspect('equal')
+		else:
+			self.ax.set_aspect('auto')
+			
 		self.IMG_INIT = True
 		#self.cursor = Cursor(self.ax, color='k', linewidth=1, useblit=True)
 		
@@ -1150,13 +1178,21 @@ class MyMainWindow(gtk.Window):
 		self.clear_notes()
 		self.init_image()
 		model = widget.get_model()
+		#print "TRA CHOOSE: ",model
+		#print "ROW: ",row,len(row)
+		#print "MODEL[ROW]: ",model[row]
 		self.edf_choosen = model[row][0]
-		self.edf = join(self.current_folder,self.edf_choosen)
+		self.edf_folder = self.current_folder
+		if len(row)==2:
+			#print "Selected Directory: ",model[row[0]][0]
+			self.edf_folder = join(self.current_folder,model[row[0]][0])
+			#print "edf_folder: ",self.edf_folder
+		self.edf = join(self.edf_folder,self.edf_choosen)
 		#self.edf_pos.set_text("EDF choosen:  %s"%self.edf_choosen)
 		try:
-			self.MAIN_TITLE.set_text(self.edf_choosen,fontsize=20)
+			self.MAIN_TITLE.set_text(self.edf_choosen,fontsize=18)
 		except:
-			self.MAIN_TITLE = self.ax.set_title(self.edf_choosen,fontsize=20)
+			self.MAIN_TITLE = self.ax.set_title(self.edf_choosen,fontsize=18)
 		#self.MAIN_TITLE = self.fig.suptitle(self.edf_choosen)
 		### Data Loading #########
 		self.fabioIMG = fabio.open(self.edf)
@@ -1212,7 +1248,7 @@ class MyMainWindow(gtk.Window):
 		num = num.split(".")[0]
 		self.SELECTED_IMG_NUM = int(num)
 		if self.SPEC_IS_LOADED and len(self.SPEC_IMG) != 0:
-			self.check_and_update_scan_slider()
+			self.check_and_update_scan_slider()#Check the scan number and image number --> set the spin button for scan num and the slider for img num
 		return
 
 	def load_specFile(self,widget):
@@ -1236,29 +1272,33 @@ class MyMainWindow(gtk.Window):
 	def update_spec_data(self):
 		self.SPEC_IMG = []
 		self.SPEC_SCAN_LIST = self.SPEC_DATA.scan_list
-		first_scan_num = self.SPEC_SCAN_LIST[0].nr
-		last_scan_num = self.SPEC_SCAN_LIST[-1].nr
-		self.SPEC_SCAN_RANGE = (first_scan_num, last_scan_num)
-		#print first_scan_num, last_scan_num
-		self.SPEC_SCAN_NUM_LIST = []
-		for i in range(len(self.SPEC_SCAN_LIST)):
-			item = self.SPEC_SCAN_LIST[i]
-			self.SPEC_SCAN_NUM_LIST.append(item.nr)
-			if item.scan_status == 'OK':
-				item.ReadData()
-				this_img_list = item.data[_SPEC_IMG_COL]
-				this_img_list = this_img_list.astype('int')
-			else:
-				this_img_list = []
-			self.SPEC_IMG.append(this_img_list)
+		if _SPEC_IMG_COL not in self.SPEC_SCAN_LIST[0].colnames:
+			self.popup_info("error","Spec file does not containt image field. The default image coloumn is 'img'")
+			return
+		else:
+			first_scan_num = self.SPEC_SCAN_LIST[0].nr
+			last_scan_num = self.SPEC_SCAN_LIST[-1].nr
+			self.SPEC_SCAN_RANGE = (first_scan_num, last_scan_num)
+			#print first_scan_num, last_scan_num
+			self.SPEC_SCAN_NUM_LIST = []
+			for i in range(len(self.SPEC_SCAN_LIST)):
+				#item = self.SPEC_SCAN_LIST[i]
+				self.SPEC_SCAN_NUM_LIST.append(self.SPEC_SCAN_LIST[i].nr)
+				if self.SPEC_SCAN_LIST[i].scan_status == 'OK':
+					self.SPEC_SCAN_LIST[i].ReadData()
+					this_img_list = self.SPEC_SCAN_LIST[i].data[_SPEC_IMG_COL]
+					this_img_list = this_img_list.astype('int')
+				else:
+					this_img_list = []
+				self.SPEC_IMG.append(this_img_list)
+				
+			self.SPEC_IS_LOADED = True
+			self.scan_slider_spinButton.set_range(self.SPEC_SCAN_RANGE[0], self.SPEC_SCAN_RANGE[1])
 			
-		self.SPEC_IS_LOADED = True
-		self.scan_slider_spinButton.set_range(self.SPEC_SCAN_RANGE[0], self.SPEC_SCAN_RANGE[1])
-		
-		#print "SPEC_IMG len: ",len(self.SPEC_IMG)
-		#print "SPEC SCAN NUM LIST: ",self.SPEC_SCAN_NUM_LIST
-		self.check_and_update_scan_slider()
-		return
+			#print "SPEC_IMG len: ",len(self.SPEC_IMG)
+			#print "SPEC SCAN NUM LIST: ",self.SPEC_SCAN_NUM_LIST
+			self.check_and_update_scan_slider()
+		#return
 	
 	def update_scan_slider(self,widget):
 		self.update_scan_slider_now()
@@ -1266,46 +1306,67 @@ class MyMainWindow(gtk.Window):
 	
 	def update_scan_slider_now(self):
 		actual_scan_num = self.scan_slider_spinButton.get_value()
+		actual_scan_num = int(actual_scan_num)
+		#print "Actual scan number: ",actual_scan_num
 		for i in range(len(self.SPEC_SCAN_NUM_LIST)):
 			if actual_scan_num == self.SPEC_SCAN_NUM_LIST[i]:
 				self.SPEC_ACTUAL_SCAN = self.SPEC_SCAN_LIST[i]
 				break
 		#print "Actual scan number: ", self.SPEC_ACTUAL_SCAN.nr
 		
-		self.SPEC_ACTUAL_SCAN.ReadData()
+		#self.SPEC_ACTUAL_SCAN.ReadData()#All scan are Data Ready
+		self.SPEC_ACTUAL_SCAN_IMG = []
 		self.SPEC_ACTUAL_SCAN_IMG = self.SPEC_ACTUAL_SCAN.data[_SPEC_IMG_COL]
 		self.SPEC_ACTUAL_SCAN_IMG = self.SPEC_ACTUAL_SCAN_IMG.astype('int')
 		#print "Actual scan images: ",self.SPEC_ACTUAL_SCAN_IMG
 		actual_img_num  = self.SELECTED_IMG_NUM
-		if actual_img_num == None or actual_img_num not in self.SPEC_ACTUAL_SCAN_IMG:
+		#actual_img_num = self.scan_slider_imgSlider.get_value()
+		#actual_img_num = int(actual_img_num)
+		if (actual_img_num == None) or (actual_img_num not in self.SPEC_ACTUAL_SCAN_IMG):
 			actual_img_num = self.SPEC_ACTUAL_SCAN_IMG[0]
+			for k in self.store.keys():
+				if actual_img_num in self.store_img[k]:
+					self.edf_folder = k
+					break
+				
+		#while gtk.events_pending():
+			#gtk.main_iteration()
+		if self.SPEC_ACTUAL_SCAN_IMG[0] == self.SPEC_ACTUAL_SCAN_IMG[-1]:
+			self.scan_slider_imgSlider.set_range(self.SPEC_ACTUAL_SCAN_IMG[0], self.SPEC_ACTUAL_SCAN_IMG[-1]+1)
+		else:
+			self.scan_slider_imgSlider.set_range(self.SPEC_ACTUAL_SCAN_IMG[0], self.SPEC_ACTUAL_SCAN_IMG[-1])
 		
-		while gtk.events_pending():
-			gtk.main_iteration()
-		self.scan_slider_imgSlider.set_range(self.SPEC_ACTUAL_SCAN_IMG[0], self.SPEC_ACTUAL_SCAN_IMG[-1])
-		self.scan_slider_imgSlider.set_value(actual_img_num)
+		self.scan_slider_imgSlider.set_value(actual_img_num)#This will call the plot_scan too
 		#print "Actual image number: ",actual_img_num
+		#print self.SPEC_ACTUAL_SCAN_IMG
 		
 		self.SPEC_ACTUAL_SCAN_DATA = []
 		try:
-			self.SPEC_ACTUAL_SCAN_IMG_NAMES = select_files_from_list(self.store, self.SPEC_ACTUAL_SCAN_IMG[0], self.SPEC_ACTUAL_SCAN_IMG[-1])
+			self.SPEC_ACTUAL_SCAN_IMG_NAMES = select_files_from_list(self.store[self.edf_folder], self.SPEC_ACTUAL_SCAN_IMG[0], self.SPEC_ACTUAL_SCAN_IMG[-1])
+			
 			img_list = self.SPEC_ACTUAL_SCAN_IMG_NAMES
+			#print "Actual images: ",img_list
+			
 			for j in range(len(img_list)):
-				edf = join(self.current_folder, img_list[j])
+				edf = join(self.edf_folder, img_list[j])
 				data= fabio.open(edf).data
 				self.SPEC_ACTUAL_SCAN_DATA.append(data)
 			self.SPEC_ACTUAL_SCAN_DATA = N.asarray(self.SPEC_ACTUAL_SCAN_DATA)
 			#print "Test if SCAN DATA is loaded: ",self.SPEC_ACTUAL_SCAN_DATA.shape
 		except:
-			self.popup_info("warning","Attention: Data not found for this scan.")
+			pass
+			#self.popup_info("warning","Attention: Data not found for this scan.")
 		
 		self.SPEC_SCAN_MOTOR_NAME = self.SPEC_ACTUAL_SCAN.colnames[0]
 		self.SPEC_SCAN_MOTOR_DATA = self.SPEC_ACTUAL_SCAN.data[self.SPEC_SCAN_MOTOR_NAME]
+		self.plot_scan()
+		
 		if not self.IMG_INIT:
 			self.init_image()
 		return
 	
 	def check_and_update_scan_slider(self):
+		"""Get the actual scan object corresponding to the scan number and image number selected"""
 		if self.DATA_IS_LOADED and self.SELECTED_IMG_NUM != None:
 			for i in range(len(self.SPEC_IMG)):
 				if self.SELECTED_IMG_NUM in self.SPEC_IMG[i]:
@@ -1313,9 +1374,9 @@ class MyMainWindow(gtk.Window):
 					break
 			
 		else:
-			self.SPEC_ACTUAL_SCAN = self.SPEC_SCAN_LIST[-1]
+			self.SPEC_ACTUAL_SCAN = self.SPEC_SCAN_LIST[-1]#if no image is selected, the last scan will be displayed
 			
-		self.scan_slider_spinButton.set_value(self.SPEC_ACTUAL_SCAN.nr)
+		self.scan_slider_spinButton.set_value(self.SPEC_ACTUAL_SCAN.nr)#This will call the update scan slider too
 		self.update_scan_slider_now()
 	
 	def slider_plot_scan(self, widget):
@@ -1324,6 +1385,8 @@ class MyMainWindow(gtk.Window):
 	def plot_scan(self):
 		try:
 			img_num = self.scan_slider_imgSlider.get_value()
+			img_num = int(img_num)
+			self.SELECTED_IMG_NUM = img_num
 			#print "Image number: ",img_num
 			img_index = N.where(self.SPEC_ACTUAL_SCAN_IMG == img_num)
 			img_index = img_index[0][0]
@@ -1340,10 +1403,13 @@ class MyMainWindow(gtk.Window):
 			self.MAIN_TITLE.set_text(this_title)
 			self.scale_plot()
 			self.canvas.draw()
-			self.fabioIMG = fabio.open(join(self.current_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]))
+			if isfile(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index])):
+				self.fabioIMG = fabio.open(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]))
+			else:
+				pass
 		except:
 			pass
-		#return
+		return
 	
 	def change_scale(self,button, data):
 		if button.get_active():
@@ -1602,7 +1668,52 @@ class MyMainWindow(gtk.Window):
 			self.cb2.ax.set_visible(False)
 
 		self.canvas.draw()
+	
+	def get_list_dir(self,this_dir):
+		""" Get the list of directories inside this_dir"""
+		self.MODEL.clear()
+		main_dir = this_dir
+		list_dir = listdir(main_dir)
+		no_of_threads = len(list_dir)
+		for i in range(no_of_threads):
+			#t = threading.Thread(target=self._thread_scanning,args=(main_dir,list_dir[i],))
+			#self.threads.append(t)
+			#t.start()
+			self._thread_scanning(main_dir,list_dir[i])
 
+		#gobject.timeout_add(200, self._callback)  # This will cause the main app to
+		#check every 200 ms if the threads are done.
+	def _callback(self):
+		if threading.active_count() == 1:  # If only one left, scanning is done
+			return False  # False make callback stop
+		#print threading.active_count()
+		return True
+	
+	def _thread_scanning(self,main_d,list_d):
+		path = os.sep.join((main_d, list_d))  # Made use of os's sep instead...
+		if os.path.isdir(path):
+			list_subd = os.listdir(path)
+			grand_parent = self.MODEL.append(None,[list_d])
+			#for sub in list_subd:
+				#parent=self.MODEL.append(grand_parent,[sub])
+			self.scan_EDF_files(grand_parent,path)
+
+		#time.sleep(3)  # Useless other than to delay finish of thread.
+	
+	def scan_EDF_files(self,parent, this_dir):
+		#print "Scanning this directory: ",this_dir
+		main_store= [i for i in listdir(this_dir) if isfile(join(this_dir,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
+		main_store = sorted(main_store)
+		if len(main_store)>0:
+			self.store[str(this_dir)] = main_store
+			for f in main_store:
+				self.MODEL.append(parent,[f])
+		else:
+			self.store[str(this_dir)] = [None]
+		#print "Scanning... ",self.store.keys()
+		#print this_dir
+		
+	
 	def choose_folder(self,w):
 		dialog = gtk.FileChooserDialog(title="Select an EDF folder",action=gtk.FILE_CHOOSER_ACTION_SELECT_FOLDER, buttons = (gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
 		dialog.set_current_folder(self.current_folder)
@@ -1612,36 +1723,54 @@ class MyMainWindow(gtk.Window):
 			folder=dialog.get_filename()
 			folder_basename = folder.split("/")[-1]
 			#print folder
-			self.store= [i for i in listdir(folder) if isfile(join(folder,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
-			#print self.store
-			self.store = sorted(self.store)
+			main_store= [i for i in listdir(folder) if isfile(join(folder,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
+			self.store = {}
+			if len(main_store)>0:
+				main_store = sorted(main_store)
+				self.store[str(folder)] = main_store
+
 			self.current_folder = folder
 			#print self.store
-			if len(self.store)>0:
-				self.list_store.clear()
-				for i in self.store:
-					self.list_store.append([i])
+			self.get_list_dir(self.current_folder)
+			if len(main_store)>0:
+				#self.list_store.clear()
+				#self.MODEL.clear()
+				for i in main_store:
+					self.MODEL.append(None,[i])
 				self.TVcolumn.set_title(folder_basename)
+				
 			else:
 				pass
 			self.DATA_IS_LOADED = True
-			if self.SPEC_DATA:
-				self.SPEC_DATA.Update()
-				self.update_spec_data()
+			
 		else:
 			pass
 		dialog.destroy()
+		if self.DATA_IS_LOADED:
+			self.store_img = {}
+			for k in self.store.keys():
+				self.store_img[k] = get_img_list(self.store[k])
+			#print "### ",self.store.keys()
+			if self.SPEC_DATA:
+				self.SPEC_DATA.Update()
+				self.update_spec_data()
 
 	def folder_update(self,widget):
 		folder = self.current_folder
 		if folder is not os.getcwd():
-			store= [i for i in listdir(folder) if isfile(join(folder,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
-			store = sorted(store)
-			self.store=[]
-			self.list_store.clear()
-			for i in store:
-				self.list_store.append([i])
-				self.store.append(i)
+			main_store= [i for i in listdir(folder) if isfile(join(folder,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
+			main_store = sorted(main_store)
+			self.store={}
+			#self.list_store.clear()
+			self.store[self.current_folder] = main_store
+			self.get_list_dir(self.current_folder)
+			self.store_img = {}
+			for k in self.store.keys():
+				self.store_img[k] = get_img_list(self.store[k])
+			
+			for i in main_store:
+				self.MODEL.append(None,[i])
+			
 			self.DATA_IS_LOADED = True
 			if self.SPEC_DATA:
 				self.SPEC_DATA.Update()
@@ -2591,5 +2720,7 @@ class MyMainWindow(gtk.Window):
 #***********************************************************************************************
 #                                       FINISHED
 #***********************************************************************************************
-MyMainWindow()
-gtk.main()
+if __name__ == "__main__":
+	gobject.threads_init()
+	MyMainWindow()
+	gtk.main()
