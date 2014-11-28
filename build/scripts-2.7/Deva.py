@@ -40,8 +40,8 @@ except:
 	from DEVA import xrayutilities
 
 __author__="Tra NGUYEN THANH"
-__version__ = "1.2.9"
-__date__="26/11/2014"
+__version__ = "1.3.0"
+__date__="28/11/2014"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -1516,7 +1516,7 @@ class MyMainWindow(gtk.Window):
 			self.vmax_spin_btn.set_adjustment(gtk.Adjustment(self.vmax, 0, self.vmax_range, 0.5, 10.0, 0))
 			self.vmax_spin_btn.update()
 			#self.polar_ax.relim()
-			self.plot_PF_2()
+			self.plot_PF()
 
 			
 			#self.pole_canvas.draw()
@@ -2297,7 +2297,13 @@ class MyMainWindow(gtk.Window):
 		self.data_loading.show()
 		phi_table = []
 		intensity = []
-		img_list  = select_files_from_list(self.store, img_deb, img_fin)
+		#Check where the images are
+		for k in self.store_img.keys():
+			if (img_deb in self.store_img[k]) and (img_fin in self.store_img[k]):
+				self.edf_folder = k
+				break
+		
+		img_list  = select_files_from_list(self.store[self.edf_folder], img_deb, img_fin)
 		if self.detector_type == "D1":
 			first_dim = 577
 			second_dim= 913
@@ -2311,22 +2317,30 @@ class MyMainWindow(gtk.Window):
 			#temp=first_dim
 			#first_dim = second_dim
 			#second_dim = temp
-			
+		
+		img = fabio.open(join(self.edf_folder, img_list[0]))
+		this_motor = get_motors(img.header)
+		rot1 = N.radians(this_motor['nu'])*(-1.)
+		rot2 = N.radians(this_motor['del'])*(-1.)
+		rot3 = N.radians(90-this_motor['chi'])
+		self.azimuthalIntegration.rot1 = rot1
+		self.azimuthalIntegration.rot2 = rot2
+		self.azimuthalIntegration.rot3 = rot3
 		total = len(img_list)
 		processed = 0.
 		for j in range(len(img_list)):
 			gc.collect()
 			edf_basename = img_list[j]
-			edf = join(self.current_folder, edf_basename)
+			edf = join(self.edf_folder, edf_basename)
 			try:
 				img = fabio.open(edf)
 				this_motor = get_motors(img.header)
-				rot1 = N.radians(this_motor['nu'])*(-1.)
-				rot2 = N.radians(this_motor['del'])*(-1.)
-				rot3 = N.radians(90-this_motor['chi'])
-				self.azimuthalIntegration.rot1 = rot1
-				self.azimuthalIntegration.rot2 = rot2
-				self.azimuthalIntegration.rot3 = rot3
+				#rot1 = N.radians(this_motor['nu'])*(-1.)
+				#rot2 = N.radians(this_motor['del'])*(-1.)
+				#rot3 = N.radians(90-this_motor['chi'])
+				#self.azimuthalIntegration.rot1 = rot1
+				#self.azimuthalIntegration.rot2 = rot2
+				#self.azimuthalIntegration.rot3 = rot3
 				if img.data.shape == (960,560):
 					data = self.correct_geometry(img.data)
 					data = N.rot90(data)
@@ -2339,8 +2353,8 @@ class MyMainWindow(gtk.Window):
 				x = (pole_2theta - b)/a
 				x = int(x)
 				#print "Center pixel used: ",x
-				i = I[:,x-5:x+5].sum(axis=-1)
-				i = i / 10.
+				i = I[:,x-2:x+2].sum(axis=-1)
+				i = i / 4.
 				intensity.append(i)
 				
 				this_kphi = this_motor['kphi']
@@ -2348,7 +2362,7 @@ class MyMainWindow(gtk.Window):
 				chi_gonio = this_motor['chi']
 				self.sample_tilt = chi_gonio
 				self.omega = this_motor['eta']
-				nu_gonio  = this_motor['nu']
+				#nu_gonio  = this_motor['nu']
 				if self.select_phi.get_active():			
 					kphi = this_phi
 				elif self.select_kphi.get_active():
@@ -2443,7 +2457,7 @@ class MyMainWindow(gtk.Window):
 			negative_chi = 0
 			if self.detector_type is not "D1":
 				self.PF_psi, self.PF_phi, self.PF_intensity = self.load_data(self.img_deb, self.img_fin, self.pole_2theta, 0, logscale=self.log_scale)
-				self.plot_PF_2()
+				self.plot_PF()
 		else:
 			self.popup_info("error","Please make sure that you have correctly entered all of the fields!")
 		self.data_loading.hide()
@@ -2452,54 +2466,8 @@ class MyMainWindow(gtk.Window):
 		""" Replot the pole figure with logscale option"""
 		self.PF_intensity = self.change_scale(widget,self.PF_intensity)
 		
-	def plot_PF(self):
-		#********** Plot the pole figure ***************
-		gc.collect()
-		self.polar_ax.clear()
-		self.polar_cax.clear()
-		PF_data = self.PF_intensity.copy()
-		if self.log_scale == 1:
-			PF_data = flat_data(PF_data, self.vmin, self.vmax)
-			PF_data = N.log10(PF_data+1e-6)
-		else:
-			dynhigh = N.where(PF_data > self.vmax)
-			dynlow  = N.where(PF_data < self.vmin)
-			PF_data[dynhigh] = self.vmax
-			PF_data[dynlow]  = self.vmin
-		psi,phi   = N.meshgrid(self.PF_psi,self.PF_phi)
-		psi_neg   = N.where(psi<0.)
-		psi[psi_neg] = 0. #Correction of the overplotted area
-		psi     = 90.-psi
-		m = Basemap(boundinglat=psi.min()-1, lon_0=270., resolution=None, projection = 'npstere', ax=self.polar_ax)#resolution= 'l'ow, 'h'igh, 'f'ull, None
-		X,Y = m(phi, psi)
-		#clevels = N.linspace(self.vmin, self.vmax,100)
-		self.polar_img = self.polar_ax.contourf(X,Y,PF_data, 100)
-		#self.polar_img = self.polar_ax.pcolormesh(X,Y,PF_data, vmin=self.vmin, vmax=self.vmax)
-
-		nbcircles = N.arange(int(psi.min()), int(psi.max()), int(psi.max()-psi.min())/7)
-		m.drawparallels(nbcircles, labels=[0,0,0,0], color='black', labelstyle='+/-', dashes = [2,2])
-		m.drawmeridians(N.arange(0,360,90), labels=[1,1,1,1], color='black', labelstyle='+/-', dashes=[2,2])
-		def PF_format_coord(x,y):
-			pp,cc = m(x,y,inverse=True)
-			cc=90-cc
-			return 'Phi = %.2f, Psi = %.2f'%(pp,cc)
-		if self.log_scale == 0:
-			clabel = r'$Intensity\ (Counts\ per\ second)$'
-		else:
-			clabel = r'$Log_{10}\ (Counts\ per\ second)\ [arb.\ units]$'
-		self.polar_cb  = self.polefig.colorbar(self.polar_img,cax=self.polar_cax, format="%d")
-		self.polar_cb.set_label(clabel, fontsize=18)
-		self.polar_cb.locator = MaxNLocator(nbins=6)
-		for i in range(1,len(nbcircles)):
-			p = nbcircles[i]
-			xx,yy = m(45,p)
-			self.polar_ax.text(xx,yy, str(90-p), color='white')
-		title   = "2 Theta = %.2f Deg."%self.pole_2theta
-		self.polar_ax.text(0.5, 1.08, title, horizontalalignment='center', transform = self.polar_ax.transAxes, fontsize=20)
-		self.polar_ax.format_coord = PF_format_coord
-		self.pole_canvas.draw()
 		
-	def plot_PF_2(self):
+	def plot_PF(self):
 		#********** Plot the pole figure ***************
 		gc.collect()
 		self.polar_ax.clear()
