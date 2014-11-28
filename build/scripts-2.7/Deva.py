@@ -40,7 +40,7 @@ except:
 	from DEVA import xrayutilities
 
 __author__="Tra NGUYEN THANH"
-__version__ = "1.3.0"
+__version__ = "1.3.1"
 __date__="28/11/2014"
 
 #mpl.rcParams['font.size'] = 18.0
@@ -169,20 +169,6 @@ def median_stats(a, weights=None, axis=None, scale=1.4826):
 
 	return med,nmad
 
-def select_files_from_list(s, beg, end):
-	""" select edf files limited between number 'beg' and 'end' from the list 's' """
-	out=[]
-	for i in range(len(s)):
-		ss = s[i]
-		l = ss.split("_")
-		l = l[1]
-		n = l.split(".")[0]
-		n = int(n)
-		if n in range(beg, end+1):
-			out.append(ss)
-	out = sorted(out)
-	return out
-
 def get_index(arr, val):
 	#Get index of val from a 1D array arr
 	b = arr.min()
@@ -208,13 +194,36 @@ def get_counters(header):
 		counters[counter_name[i]] = float(counter_value[i])
 	return counters
 
+def select_files_from_list(s, beg, end):
+	""" select edf files limited between number 'beg' and 'end' from the list 's' """
+	out=[]
+	for i in range(len(s)):
+		ss = s[i]
+		if "-" in ss:
+			spliter = "-"
+		else:
+			spliter = "_"
+			
+		l = ss.split(spliter)
+		l = l[1]
+		n = l.split(".")[0]
+		n = int(n)
+		if n in range(beg, end+1):
+			out.append(ss)
+	out = sorted(out)
+	return out
+
 def get_img_list(edf_list):
 	""" Get a list of image numbers from an image_name list """
 	out = []
 	for i in range(len(edf_list)):
 		edf = edf_list[i]
 		if edf != None:
-			l = edf.split("_")
+			if "-" in edf:
+				spliter = "-"
+			else:
+				spliter = "_"
+			l = edf.split(spliter)
 			l = l[1]
 			n = l.split(".")[0]
 			n = int(n)
@@ -1365,51 +1374,62 @@ class MyMainWindow(gtk.Window):
 			self.init_image()
 		return
 	
+	#def check_and_update_spin_button(self):
+		
 	def check_and_update_scan_slider(self):
 		"""Get the actual scan object corresponding to the scan number and image number selected"""
+		scan_found = False
 		if self.DATA_IS_LOADED and self.SELECTED_IMG_NUM != None:
 			for i in range(len(self.SPEC_IMG)):
 				if self.SELECTED_IMG_NUM in self.SPEC_IMG[i]:
 					self.SPEC_ACTUAL_SCAN = self.SPEC_SCAN_LIST[i]
+					scan_found = True
 					break
 			
 		else:
 			self.SPEC_ACTUAL_SCAN = self.SPEC_SCAN_LIST[-1]#if no image is selected, the last scan will be displayed
 			
-		self.scan_slider_spinButton.set_value(self.SPEC_ACTUAL_SCAN.nr)#This will call the update scan slider too
-		self.update_scan_slider_now()
+		print "actual scan: ",self.SPEC_ACTUAL_SCAN.nr
+		if scan_found:	
+			self.scan_slider_spinButton.set_value(self.SPEC_ACTUAL_SCAN.nr)#This will call the update scan slider too
+			self.update_scan_slider_now()
+			return
+		else:
+			return
+		
 	
 	def slider_plot_scan(self, widget):
 		self.plot_scan()
 		
 	def plot_scan(self):
-		try:
-			img_num = self.scan_slider_imgSlider.get_value()
-			img_num = int(img_num)
-			self.SELECTED_IMG_NUM = img_num
-			#print "Image number: ",img_num
-			img_index = N.where(self.SPEC_ACTUAL_SCAN_IMG == img_num)
-			img_index = img_index[0][0]
-			self.data = self.SPEC_ACTUAL_SCAN_DATA[img_index]
-			if self.adj_btn.get_active():
-				if self.data.shape == (960,560) or self.data.shape == (120,560):
-					self.data = self.correct_geometry(self.data)
-			if self.horizontal_detector:
-				self.data = N.rot90(self.data)
-			this_title = self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]
-			scan_motor = self.SPEC_SCAN_MOTOR_NAME
-			this_motor_value = self.SPEC_SCAN_MOTOR_DATA[img_index]
-			this_title = this_title +" - %s = %s"%(scan_motor, this_motor_value)
-			self.MAIN_TITLE.set_text(this_title)
-			self.scale_plot()
-			self.canvas.draw()
-			if isfile(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index])):
-				self.fabioIMG = fabio.open(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]))
-			else:
-				pass
-		except:
+		#try:
+		img_num = self.scan_slider_imgSlider.get_value()
+		img_num = int(img_num)
+		#print "Image number: ",img_num
+		img_index = N.where(self.SPEC_ACTUAL_SCAN_IMG == img_num)
+		img_index = img_index[0][0]
+		self.data = self.SPEC_ACTUAL_SCAN_DATA[img_index]
+		if self.adj_btn.get_active():
+			if self.data.shape == (960,560) or self.data.shape == (120,560):
+				self.data = self.correct_geometry(self.data)
+		if self.horizontal_detector:
+			self.data = N.rot90(self.data)
+		this_title = self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]
+		scan_motor = self.SPEC_SCAN_MOTOR_NAME
+		this_motor_value = self.SPEC_SCAN_MOTOR_DATA[img_index]
+		this_title = this_title +" - %s = %s"%(scan_motor, this_motor_value)
+		self.MAIN_TITLE.set_text(this_title)
+		self.scale_plot()
+		self.canvas.draw()
+		
+		self.SELECTED_IMG_NUM = img_num
+		if isfile(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index])):
+			self.fabioIMG = fabio.open(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]))
+		else:
 			pass
-		return
+		#except:
+			#pass
+		#return
 	
 	def change_scale(self,button, data):
 		if button.get_active():
@@ -1692,11 +1712,19 @@ class MyMainWindow(gtk.Window):
 	def _thread_scanning(self,main_d,list_d):
 		path = os.sep.join((main_d, list_d))  # Made use of os's sep instead...
 		if os.path.isdir(path):
-			list_subd = os.listdir(path)
-			grand_parent = self.MODEL.append(None,[list_d])
+			#list_subd = os.listdir(path)
 			#for sub in list_subd:
-				#parent=self.MODEL.append(grand_parent,[sub])
-			self.scan_EDF_files(grand_parent,path)
+				#parent=self.MODEL.append(parent,[sub])
+			#self.scan_EDF_files(grand_parent,path)
+			main_store= [i for i in listdir(path) if isfile(join(path,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
+			main_store = sorted(main_store)
+			if len(main_store)>0:
+				parent = self.MODEL.append(None,[list_d])
+				self.store[str(path)] = main_store
+				for f in main_store:
+					self.MODEL.append(parent,[f])
+			#else:
+				#self.store[str(path)] = [None]
 
 		#time.sleep(3)  # Useless other than to delay finish of thread.
 	
@@ -1725,22 +1753,21 @@ class MyMainWindow(gtk.Window):
 			#print folder
 			main_store= [i for i in listdir(folder) if isfile(join(folder,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
 			self.store = {}
-			if len(main_store)>0:
-				main_store = sorted(main_store)
-				self.store[str(folder)] = main_store
+			#if len(main_store)>0:
+				#main_store = sorted(main_store)
+				#self.store[str(folder)] = main_store
 
 			self.current_folder = folder
 			#print self.store
 			self.get_list_dir(self.current_folder)
 			if len(main_store)>0:
-				#self.list_store.clear()
-				#self.MODEL.clear()
+				main_store = sorted(main_store)
+				self.store[str(folder)] = main_store
 				for i in main_store:
 					self.MODEL.append(None,[i])
-				self.TVcolumn.set_title(folder_basename)
-				
 			else:
 				pass
+			self.TVcolumn.set_title(folder_basename)
 			self.DATA_IS_LOADED = True
 			
 		else:
