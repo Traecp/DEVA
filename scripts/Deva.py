@@ -40,8 +40,8 @@ except:
 	from DEVA import xrayutilities
 
 __author__="Tra NGUYEN THANH"
-__version__ = "1.3.1"
-__date__="28/11/2014"
+__version__ = "1.3.2"
+__date__="01/12/2014"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -446,7 +446,7 @@ class MyMainWindow(gtk.Window):
 		#*********************************** SCAN SLIDER *****************************************
 		#Variables for scan slider:
 		self.SCAN_IMG = []
-		self.SPEC_IMG = []
+		self.SPEC_IMG = []#List of all spec images
 		self.SPEC_FILE = ""
 		self.SELECTED_IMG_NUM = None
 		self.SPEC_IS_LOADED = False
@@ -456,14 +456,17 @@ class MyMainWindow(gtk.Window):
 		self.SPEC_ACTUAL_SCAN_IMG = 0
 		self.DATA_IS_LOADED = False
 		self.SPEC_ACTUAL_SCAN_DATA = []
+		self.SPEC_ALL_MOTORS_LIST  = []#List of all motor_scan, in uppercase (PHI,TSZ,ETA,...)
+		self.SPEC_SKIPPED_MOTORS   = []#List of the scanning motors that we don't want to search
 		
 		self.scan_slider_frame = gtk.Frame()
 		self.scan_slider_table_align = gtk.Alignment(0,0.5,1,1)
 		self.scan_slider_table_align.set_padding(10,5,5,5)
+		skip_box = gtk.HBox()
 		
 		self.scan_slider_frame.set_label("Scan Slider")
 		self.scan_slider_frame.set_label_align(0.5,0.5)
-		self.scan_slider_table = gtk.Table(2,3,False)
+		self.scan_slider_table = gtk.Table(3,3,False)
 		self.scan_slider_specfile_txt = gtk.Label("Spec file")
 		self.scan_slider_specfile_txt.set_alignment(0,0.5)
 		self.scan_slider_scanNumber_txt = gtk.Label("Scan #")
@@ -484,12 +487,38 @@ class MyMainWindow(gtk.Window):
 		self.scan_slider_spinButton.connect("value-changed",self.update_scan_slider)
 		self.scan_slider_imgSlider.connect("value-changed", self.slider_plot_scan)
 		
+		#Skip scans:
+		self.scan_slider_skip_scans = gtk.Label("Skip these scans:")
+		self.scan_slider_skip_scans.set_alignment(0,0.5)
+		self.scan_slider_skip_tsz   = gtk.CheckButton("Tsz")
+		self.scan_slider_skip_eta   = gtk.CheckButton("Eta")
+		self.scan_slider_skip_del   = gtk.CheckButton("Del")
+		self.scan_slider_skip_chi   = gtk.CheckButton("Chi")
+		self.scan_slider_skip_phi   = gtk.CheckButton("Phi")
+		self.scan_slider_skip_rox   = gtk.CheckButton("Rox")
+		self.scan_slider_skip_roy   = gtk.CheckButton("Roy")
+		self.scan_slider_skip_tox   = gtk.CheckButton("Tox")
+		self.scan_slider_skip_toy   = gtk.CheckButton("Toy")
+		#skip_box.pack_start(self.scan_slider_skip_scans, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_tsz, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_eta, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_del, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_chi, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_phi, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_rox, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_roy, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_tox, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_toy, False, False, 0)
+		
 		self.scan_slider_table.attach(self.scan_slider_specfile_txt, 0,1,0,1)
 		self.scan_slider_table.attach(self.scan_slider_path, 1,2,0,1)
 		self.scan_slider_table.attach(self.scan_slider_browseSpec, 2,3,0,1)
 		self.scan_slider_table.attach(self.scan_slider_scanNumber_txt, 0,1,1,2)
 		self.scan_slider_table.attach(self.scan_slider_spinButton, 1,2,1,2)
 		self.scan_slider_table.attach(self.scan_slider_imgSlider, 2,3,1,2)
+		self.scan_slider_table.attach(self.scan_slider_skip_scans,0,1,2,3)
+		self.scan_slider_table.attach(skip_box, 1,3,2,3)
+		self.scan_slider_skip_tsz.set_active(True)
 		
 		self.scan_slider_table_align.add(self.scan_slider_table)
 		self.scan_slider_frame.add(self.scan_slider_table_align)
@@ -1282,17 +1311,20 @@ class MyMainWindow(gtk.Window):
 		self.SPEC_IMG = []
 		self.SPEC_SCAN_LIST = self.SPEC_DATA.scan_list
 		if _SPEC_IMG_COL not in self.SPEC_SCAN_LIST[0].colnames:
-			self.popup_info("error","Spec file does not containt image field. The default image coloumn is 'img'")
+			self.popup_info("error","Spec file does not containt the image field. The default image coloumn is 'img'")
 			return
 		else:
 			first_scan_num = self.SPEC_SCAN_LIST[0].nr
 			last_scan_num = self.SPEC_SCAN_LIST[-1].nr
+			
 			self.SPEC_SCAN_RANGE = (first_scan_num, last_scan_num)
 			#print first_scan_num, last_scan_num
 			self.SPEC_SCAN_NUM_LIST = []
+			self.SPEC_ALL_MOTORS_LIST = []
 			for i in range(len(self.SPEC_SCAN_LIST)):
 				#item = self.SPEC_SCAN_LIST[i]
 				self.SPEC_SCAN_NUM_LIST.append(self.SPEC_SCAN_LIST[i].nr)
+				self.SPEC_ALL_MOTORS_LIST.append(self.SPEC_SCAN_LIST[i].colnames[0].upper())
 				if self.SPEC_SCAN_LIST[i].scan_status == 'OK':
 					self.SPEC_SCAN_LIST[i].ReadData()
 					this_img_list = self.SPEC_SCAN_LIST[i].data[_SPEC_IMG_COL]
@@ -1309,17 +1341,44 @@ class MyMainWindow(gtk.Window):
 			self.check_and_update_scan_slider()
 		#return
 	
+	def check_skipped_motors(self):
+		self.SPEC_SKIPPED_MOTORS = []
+		if self.scan_slider_skip_chi.get_active():
+			self.SPEC_SKIPPED_MOTORS.append("Chi".upper())
+		if self.scan_slider_skip_del.get_active():
+			self.SPEC_SKIPPED_MOTORS.append("Del".upper())
+		if self.scan_slider_skip_eta.get_active():
+			self.SPEC_SKIPPED_MOTORS.append("Eta".upper())
+		if self.scan_slider_skip_phi.get_active():
+			self.SPEC_SKIPPED_MOTORS.append("Phi".upper())
+		if self.scan_slider_skip_tsz.get_active():
+			self.SPEC_SKIPPED_MOTORS.append("Tsz".upper())
+		if self.scan_slider_skip_tox.get_active():
+			self.SPEC_SKIPPED_MOTORS.append("Tox".upper())
+		if self.scan_slider_skip_toy.get_active():
+			self.SPEC_SKIPPED_MOTORS.append("Toy".upper())
+		if self.scan_slider_skip_rox.get_active():
+			self.SPEC_SKIPPED_MOTORS.append("Rox".upper())
+		if self.scan_slider_skip_roy.get_active():
+			self.SPEC_SKIPPED_MOTORS.append("Roy".upper())
+		#return
+		
+	
 	def update_scan_slider(self,widget):
 		self.update_scan_slider_now()
-		return
+		#return
 	
 	def update_scan_slider_now(self):
 		actual_scan_num = self.scan_slider_spinButton.get_value()
 		actual_scan_num = int(actual_scan_num)
-		#print "Actual scan number: ",actual_scan_num
+		self.check_skipped_motors()#To get the list of skipped motors
+		print "Actual scan number: ",actual_scan_num
+		#print "First scan: %d, Last scan: %d"%(self.SPEC_SCAN_LIST[0].nr, self.SPEC_SCAN_LIST[-1].nr)
 		for i in range(len(self.SPEC_SCAN_NUM_LIST)):
-			if actual_scan_num == self.SPEC_SCAN_NUM_LIST[i]:
+			scan_motor = self.SPEC_ACTUAL_SCAN.colnames[0].upper()
+			if (actual_scan_num == self.SPEC_SCAN_NUM_LIST[i]) and (scan_motor not in self.SPEC_SKIPPED_MOTORS):
 				self.SPEC_ACTUAL_SCAN = self.SPEC_SCAN_LIST[i]
+				self.SPEC_SCAN_MOTOR_NAME = self.SPEC_ACTUAL_SCAN.colnames[0]
 				break
 		#print "Actual scan number: ", self.SPEC_ACTUAL_SCAN.nr
 		
@@ -1348,26 +1407,28 @@ class MyMainWindow(gtk.Window):
 		self.scan_slider_imgSlider.set_value(actual_img_num)#This will call the plot_scan too
 		#print "Actual image number: ",actual_img_num
 		#print self.SPEC_ACTUAL_SCAN_IMG
-		
 		self.SPEC_ACTUAL_SCAN_DATA = []
 		try:
 			self.SPEC_ACTUAL_SCAN_IMG_NAMES = select_files_from_list(self.store[self.edf_folder], self.SPEC_ACTUAL_SCAN_IMG[0], self.SPEC_ACTUAL_SCAN_IMG[-1])
 			
 			img_list = self.SPEC_ACTUAL_SCAN_IMG_NAMES
 			#print "Actual images: ",img_list
-			
+			print "Getting data for this scan ..."
 			for j in range(len(img_list)):
+				#print "Getting ",img_list[j]
 				edf = join(self.edf_folder, img_list[j])
 				data= fabio.open(edf).data
 				self.SPEC_ACTUAL_SCAN_DATA.append(data)
 			self.SPEC_ACTUAL_SCAN_DATA = N.asarray(self.SPEC_ACTUAL_SCAN_DATA)
 			#print "Test if SCAN DATA is loaded: ",self.SPEC_ACTUAL_SCAN_DATA.shape
+			print "End."
 		except:
 			pass
 			#self.popup_info("warning","Attention: Data not found for this scan.")
 		
-		self.SPEC_SCAN_MOTOR_NAME = self.SPEC_ACTUAL_SCAN.colnames[0]
+		#self.SPEC_SCAN_MOTOR_NAME = self.SPEC_ACTUAL_SCAN.colnames[0]
 		self.SPEC_SCAN_MOTOR_DATA = self.SPEC_ACTUAL_SCAN.data[self.SPEC_SCAN_MOTOR_NAME]
+		#print "plot_scan"
 		self.plot_scan()
 		
 		if not self.IMG_INIT:
@@ -1389,10 +1450,10 @@ class MyMainWindow(gtk.Window):
 		else:
 			self.SPEC_ACTUAL_SCAN = self.SPEC_SCAN_LIST[-1]#if no image is selected, the last scan will be displayed
 			
-		print "actual scan: ",self.SPEC_ACTUAL_SCAN.nr
+		#print "actual scan: ",self.SPEC_ACTUAL_SCAN.nr
 		if scan_found:	
 			self.scan_slider_spinButton.set_value(self.SPEC_ACTUAL_SCAN.nr)#This will call the update scan slider too
-			self.update_scan_slider_now()
+			#self.update_scan_slider_now()#NOT NECESSARY
 			return
 		else:
 			return
@@ -1403,30 +1464,32 @@ class MyMainWindow(gtk.Window):
 		
 	def plot_scan(self):
 		#try:
-		img_num = self.scan_slider_imgSlider.get_value()
-		img_num = int(img_num)
-		#print "Image number: ",img_num
-		img_index = N.where(self.SPEC_ACTUAL_SCAN_IMG == img_num)
-		img_index = img_index[0][0]
-		self.data = self.SPEC_ACTUAL_SCAN_DATA[img_index]
-		if self.adj_btn.get_active():
-			if self.data.shape == (960,560) or self.data.shape == (120,560):
-				self.data = self.correct_geometry(self.data)
-		if self.horizontal_detector:
-			self.data = N.rot90(self.data)
-		this_title = self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]
-		scan_motor = self.SPEC_SCAN_MOTOR_NAME
-		this_motor_value = self.SPEC_SCAN_MOTOR_DATA[img_index]
-		this_title = this_title +" - %s = %s"%(scan_motor, this_motor_value)
-		self.MAIN_TITLE.set_text(this_title)
-		self.scale_plot()
-		self.canvas.draw()
+		if len(self.SPEC_ACTUAL_SCAN_DATA)>0:
+			img_num = self.scan_slider_imgSlider.get_value()
+			img_num = int(img_num)
+			#print "Image number: ",img_num
+			img_index = N.where(self.SPEC_ACTUAL_SCAN_IMG == img_num)
+			img_index = img_index[0][0]
+			self.data = self.SPEC_ACTUAL_SCAN_DATA[img_index]
+			if self.adj_btn.get_active():
+				if self.data.shape == (960,560) or self.data.shape == (120,560):
+					self.data = self.correct_geometry(self.data)
+			if self.horizontal_detector:
+				self.data = N.rot90(self.data)
+			this_title = self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]
+			scan_motor = self.SPEC_SCAN_MOTOR_NAME
+			this_motor_value = self.SPEC_SCAN_MOTOR_DATA[img_index]
+			this_title = this_title +" - %s = %s"%(scan_motor, this_motor_value)
+			self.MAIN_TITLE.set_text(this_title)
+			self.scale_plot()
+			self.canvas.draw()
+			
+			self.SELECTED_IMG_NUM = img_num
+			if isfile(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index])):
+				self.fabioIMG = fabio.open(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]))
+			else:
+				pass
 		
-		self.SELECTED_IMG_NUM = img_num
-		if isfile(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index])):
-			self.fabioIMG = fabio.open(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]))
-		else:
-			pass
 		#except:
 			#pass
 		#return

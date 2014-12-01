@@ -456,14 +456,16 @@ class MyMainWindow(gtk.Window):
 		self.SPEC_ACTUAL_SCAN_IMG = 0
 		self.DATA_IS_LOADED = False
 		self.SPEC_ACTUAL_SCAN_DATA = []
+		self.SPEC_ALL_MOTORS = []
 		
 		self.scan_slider_frame = gtk.Frame()
 		self.scan_slider_table_align = gtk.Alignment(0,0.5,1,1)
 		self.scan_slider_table_align.set_padding(10,5,5,5)
+		skip_box = gtk.HBox()
 		
 		self.scan_slider_frame.set_label("Scan Slider")
 		self.scan_slider_frame.set_label_align(0.5,0.5)
-		self.scan_slider_table = gtk.Table(2,3,False)
+		self.scan_slider_table = gtk.Table(3,3,False)
 		self.scan_slider_specfile_txt = gtk.Label("Spec file")
 		self.scan_slider_specfile_txt.set_alignment(0,0.5)
 		self.scan_slider_scanNumber_txt = gtk.Label("Scan #")
@@ -484,12 +486,38 @@ class MyMainWindow(gtk.Window):
 		self.scan_slider_spinButton.connect("value-changed",self.update_scan_slider)
 		self.scan_slider_imgSlider.connect("value-changed", self.slider_plot_scan)
 		
+		#Skip scans:
+		self.scan_slider_skip_scans = gtk.Label("Skip these scans:")
+		self.scan_slider_skip_scans.set_alignment(0,0.5)
+		self.scan_slider_skip_tsz   = gtk.CheckButton("Tsz")
+		self.scan_slider_skip_eta   = gtk.CheckButton("Eta")
+		self.scan_slider_skip_del   = gtk.CheckButton("Del")
+		self.scan_slider_skip_chi   = gtk.CheckButton("Chi")
+		self.scan_slider_skip_phi   = gtk.CheckButton("Phi")
+		self.scan_slider_skip_rox   = gtk.CheckButton("Rox")
+		self.scan_slider_skip_roy   = gtk.CheckButton("Roy")
+		self.scan_slider_skip_tox   = gtk.CheckButton("Tox")
+		self.scan_slider_skip_toy   = gtk.CheckButton("Toy")
+		#skip_box.pack_start(self.scan_slider_skip_scans, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_tsz, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_eta, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_del, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_chi, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_phi, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_rox, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_roy, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_tox, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_toy, False, False, 0)
+		
 		self.scan_slider_table.attach(self.scan_slider_specfile_txt, 0,1,0,1)
 		self.scan_slider_table.attach(self.scan_slider_path, 1,2,0,1)
 		self.scan_slider_table.attach(self.scan_slider_browseSpec, 2,3,0,1)
 		self.scan_slider_table.attach(self.scan_slider_scanNumber_txt, 0,1,1,2)
 		self.scan_slider_table.attach(self.scan_slider_spinButton, 1,2,1,2)
 		self.scan_slider_table.attach(self.scan_slider_imgSlider, 2,3,1,2)
+		self.scan_slider_table.attach(self.scan_slider_skip_scans,0,1,2,3)
+		self.scan_slider_table.attach(skip_box, 1,3,2,3)
+		self.scan_slider_skip_tsz.set_active(True)
 		
 		self.scan_slider_table_align.add(self.scan_slider_table)
 		self.scan_slider_frame.add(self.scan_slider_table_align)
@@ -1403,30 +1431,32 @@ class MyMainWindow(gtk.Window):
 		
 	def plot_scan(self):
 		#try:
-		img_num = self.scan_slider_imgSlider.get_value()
-		img_num = int(img_num)
-		#print "Image number: ",img_num
-		img_index = N.where(self.SPEC_ACTUAL_SCAN_IMG == img_num)
-		img_index = img_index[0][0]
-		self.data = self.SPEC_ACTUAL_SCAN_DATA[img_index]
-		if self.adj_btn.get_active():
-			if self.data.shape == (960,560) or self.data.shape == (120,560):
-				self.data = self.correct_geometry(self.data)
-		if self.horizontal_detector:
-			self.data = N.rot90(self.data)
-		this_title = self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]
-		scan_motor = self.SPEC_SCAN_MOTOR_NAME
-		this_motor_value = self.SPEC_SCAN_MOTOR_DATA[img_index]
-		this_title = this_title +" - %s = %s"%(scan_motor, this_motor_value)
-		self.MAIN_TITLE.set_text(this_title)
-		self.scale_plot()
-		self.canvas.draw()
+		if len(self.SPEC_ACTUAL_SCAN_DATA)>0:
+			img_num = self.scan_slider_imgSlider.get_value()
+			img_num = int(img_num)
+			#print "Image number: ",img_num
+			img_index = N.where(self.SPEC_ACTUAL_SCAN_IMG == img_num)
+			img_index = img_index[0][0]
+			self.data = self.SPEC_ACTUAL_SCAN_DATA[img_index]
+			if self.adj_btn.get_active():
+				if self.data.shape == (960,560) or self.data.shape == (120,560):
+					self.data = self.correct_geometry(self.data)
+			if self.horizontal_detector:
+				self.data = N.rot90(self.data)
+			this_title = self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]
+			scan_motor = self.SPEC_SCAN_MOTOR_NAME
+			this_motor_value = self.SPEC_SCAN_MOTOR_DATA[img_index]
+			this_title = this_title +" - %s = %s"%(scan_motor, this_motor_value)
+			self.MAIN_TITLE.set_text(this_title)
+			self.scale_plot()
+			self.canvas.draw()
+			
+			self.SELECTED_IMG_NUM = img_num
+			if isfile(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index])):
+				self.fabioIMG = fabio.open(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]))
+			else:
+				pass
 		
-		self.SELECTED_IMG_NUM = img_num
-		if isfile(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index])):
-			self.fabioIMG = fabio.open(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]))
-		else:
-			pass
 		#except:
 			#pass
 		#return
