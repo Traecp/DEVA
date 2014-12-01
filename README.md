@@ -28,6 +28,7 @@ INSTALLATION on WINDOWS
 	Then retry the installation as below.
 	
 + Installation:
+	
 	A binary package will be released soon.
 
 	For the moment let's try to install DEVA with command line on windows: python setup.py install
