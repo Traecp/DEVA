@@ -210,7 +210,7 @@ def select_files_from_list(s, beg, end):
 		n = int(n)
 		if n in range(beg, end+1):
 			out.append(ss)
-	out = sorted(out)
+	#out = sorted(out)
 	return out
 
 def get_img_list(edf_list):
@@ -230,7 +230,7 @@ def get_img_list(edf_list):
 			out.append(n)
 		else:
 			out.append(None)
-	#out = N.asarray(out)
+	out = N.asarray(out)
 	return N.asarray(out)
 	
 class MyMainWindow(gtk.Window):
@@ -238,7 +238,7 @@ class MyMainWindow(gtk.Window):
 	def __init__(self):
 		super(MyMainWindow, self).__init__()
 		self.set_title("DEVA - D2AM EDF Visualisation and Analysis - version %s - Last update: %s"%(__version__, __date__))
-		self.set_size_request(1200, 900)
+		self.set_size_request(1250, 950)
 		#self.modify_bg(gtk.STATE_NORMAL, gtk.gdk.Color(6400, 6400, 6440))
 		self.set_position(gtk.WIN_POS_CENTER)
 		self.set_border_width(10)
@@ -488,7 +488,7 @@ class MyMainWindow(gtk.Window):
 		self.scan_slider_imgSlider.connect("value-changed", self.slider_plot_scan)
 		
 		#Skip scans:
-		self.scan_slider_skip_scans = gtk.Label("Skip these scans:")
+		self.scan_slider_skip_scans = gtk.Label("Skipped scans:")
 		self.scan_slider_skip_scans.set_alignment(0,0.5)
 		self.scan_slider_skip_tsz   = gtk.CheckButton("Tsz")
 		self.scan_slider_skip_eta   = gtk.CheckButton("Eta")
@@ -499,6 +499,7 @@ class MyMainWindow(gtk.Window):
 		self.scan_slider_skip_roy   = gtk.CheckButton("Roy")
 		self.scan_slider_skip_tox   = gtk.CheckButton("Tox")
 		self.scan_slider_skip_toy   = gtk.CheckButton("Toy")
+		self.scan_slider_skip_rien  = gtk.CheckButton("Rien")
 		#skip_box.pack_start(self.scan_slider_skip_scans, False, False, 0)
 		skip_box.pack_start(self.scan_slider_skip_tsz, False, False, 0)
 		skip_box.pack_start(self.scan_slider_skip_eta, False, False, 0)
@@ -509,6 +510,7 @@ class MyMainWindow(gtk.Window):
 		skip_box.pack_start(self.scan_slider_skip_roy, False, False, 0)
 		skip_box.pack_start(self.scan_slider_skip_tox, False, False, 0)
 		skip_box.pack_start(self.scan_slider_skip_toy, False, False, 0)
+		skip_box.pack_start(self.scan_slider_skip_rien, False, False, 0)
 		
 		self.scan_slider_table.attach(self.scan_slider_specfile_txt, 0,1,0,1)
 		self.scan_slider_table.attach(self.scan_slider_path, 1,2,0,1)
@@ -519,6 +521,7 @@ class MyMainWindow(gtk.Window):
 		self.scan_slider_table.attach(self.scan_slider_skip_scans,0,1,2,3)
 		self.scan_slider_table.attach(skip_box, 1,3,2,3)
 		self.scan_slider_skip_tsz.set_active(True)
+		self.scan_slider_skip_rien.set_active(True)
 		
 		self.scan_slider_table_align.add(self.scan_slider_table)
 		self.scan_slider_frame.add(self.scan_slider_table_align)
@@ -1361,6 +1364,8 @@ class MyMainWindow(gtk.Window):
 			self.SPEC_SKIPPED_MOTORS.append("Rox".upper())
 		if self.scan_slider_skip_roy.get_active():
 			self.SPEC_SKIPPED_MOTORS.append("Roy".upper())
+		if self.scan_slider_skip_rien.get_active():
+			self.SPEC_SKIPPED_MOTORS.append("Rien".upper())
 		#return
 		
 	
@@ -1373,17 +1378,21 @@ class MyMainWindow(gtk.Window):
 		actual_scan_num = int(actual_scan_num)
 		self.check_skipped_motors()#To get the list of skipped motors
 		print "Actual scan number: ",actual_scan_num
+		#print "Skipped scans: ",self.SPEC_SKIPPED_MOTORS
 		#print "First scan: %d, Last scan: %d"%(self.SPEC_SCAN_LIST[0].nr, self.SPEC_SCAN_LIST[-1].nr)
-		for i in range(len(self.SPEC_SCAN_NUM_LIST)):
-			scan_motor = self.SPEC_ACTUAL_SCAN.colnames[0].upper()
-			if (actual_scan_num == self.SPEC_SCAN_NUM_LIST[i]) and (scan_motor not in self.SPEC_SKIPPED_MOTORS):
+		for i in range(len(self.SPEC_SCAN_LIST)):
+			#scan_motor = self.SPEC_ACTUAL_SCAN.colnames[0].upper()
+			if (actual_scan_num == self.SPEC_SCAN_LIST[i].nr) and (self.SPEC_SCAN_LIST[i].colnames[0].upper() not in self.SPEC_SKIPPED_MOTORS):
 				self.SPEC_ACTUAL_SCAN = self.SPEC_SCAN_LIST[i]
 				self.SPEC_SCAN_MOTOR_NAME = self.SPEC_ACTUAL_SCAN.colnames[0]
+				#print "This scan motor: ",self.SPEC_SCAN_MOTOR_NAME
 				break
+			else:
+				continue
 		#print "Actual scan number: ", self.SPEC_ACTUAL_SCAN.nr
 		
 		#self.SPEC_ACTUAL_SCAN.ReadData()#All scan are Data Ready
-		self.SPEC_ACTUAL_SCAN_IMG = []
+		#self.SPEC_ACTUAL_SCAN_IMG = []
 		self.SPEC_ACTUAL_SCAN_IMG = self.SPEC_ACTUAL_SCAN.data[_SPEC_IMG_COL]
 		self.SPEC_ACTUAL_SCAN_IMG = self.SPEC_ACTUAL_SCAN_IMG.astype('int')
 		#print "Actual scan images: ",self.SPEC_ACTUAL_SCAN_IMG
@@ -1392,11 +1401,14 @@ class MyMainWindow(gtk.Window):
 		#actual_img_num = int(actual_img_num)
 		if (actual_img_num == None) or (actual_img_num not in self.SPEC_ACTUAL_SCAN_IMG):
 			actual_img_num = self.SPEC_ACTUAL_SCAN_IMG[0]
-			for k in self.store.keys():
-				if actual_img_num in self.store_img[k]:
-					self.edf_folder = k
-					break
-				
+		
+		for k in self.store.keys():
+			if actual_img_num in self.store_img[k]:
+				self.edf_folder = k
+				break
+			else:
+				continue
+		#print "EDF folder: ",self.edf_folder
 		#while gtk.events_pending():
 			#gtk.main_iteration()
 		if self.SPEC_ACTUAL_SCAN_IMG[0] == self.SPEC_ACTUAL_SCAN_IMG[-1]:
@@ -1408,26 +1420,28 @@ class MyMainWindow(gtk.Window):
 		#print "Actual image number: ",actual_img_num
 		#print self.SPEC_ACTUAL_SCAN_IMG
 		self.SPEC_ACTUAL_SCAN_DATA = []
-		try:
-			self.SPEC_ACTUAL_SCAN_IMG_NAMES = select_files_from_list(self.store[self.edf_folder], self.SPEC_ACTUAL_SCAN_IMG[0], self.SPEC_ACTUAL_SCAN_IMG[-1])
-			
-			img_list = self.SPEC_ACTUAL_SCAN_IMG_NAMES
-			#print "Actual images: ",img_list
-			print "Getting data for this scan ..."
-			for j in range(len(img_list)):
-				#print "Getting ",img_list[j]
-				edf = join(self.edf_folder, img_list[j])
-				data= fabio.open(edf).data
-				self.SPEC_ACTUAL_SCAN_DATA.append(data)
-			self.SPEC_ACTUAL_SCAN_DATA = N.asarray(self.SPEC_ACTUAL_SCAN_DATA)
-			#print "Test if SCAN DATA is loaded: ",self.SPEC_ACTUAL_SCAN_DATA.shape
-			print "End."
-		except:
-			pass
+		#try:
+		self.SPEC_ACTUAL_SCAN_IMG_NAMES = select_files_from_list(self.store[self.edf_folder], self.SPEC_ACTUAL_SCAN_IMG[0], self.SPEC_ACTUAL_SCAN_IMG[-1])
+		
+		img_list = self.SPEC_ACTUAL_SCAN_IMG_NAMES
+		#print "Actual images: ",img_list
+		print "Getting data for this scan %d ..."%self.SPEC_ACTUAL_SCAN.nr
+		for j in range(len(img_list)):
+			#print "Getting ",img_list[j]
+			edf = join(self.edf_folder, img_list[j])
+			data= fabio.open(edf).data
+			self.SPEC_ACTUAL_SCAN_DATA.append(data)
+		self.SPEC_ACTUAL_SCAN_DATA = N.asarray(self.SPEC_ACTUAL_SCAN_DATA)
+		#print "Data size: ",self.SPEC_ACTUAL_SCAN_DATA.shape
+		#print "Test if SCAN DATA is loaded: ",self.SPEC_ACTUAL_SCAN_DATA.shape
+		print "End."
+		#except:
+			#pass
 			#self.popup_info("warning","Attention: Data not found for this scan.")
 		
 		#self.SPEC_SCAN_MOTOR_NAME = self.SPEC_ACTUAL_SCAN.colnames[0]
 		self.SPEC_SCAN_MOTOR_DATA = self.SPEC_ACTUAL_SCAN.data[self.SPEC_SCAN_MOTOR_NAME]
+		#print "Motor values - size: ",self.SPEC_SCAN_MOTOR_DATA.shape
 		#print "plot_scan"
 		self.plot_scan()
 		
@@ -1441,11 +1455,14 @@ class MyMainWindow(gtk.Window):
 		"""Get the actual scan object corresponding to the scan number and image number selected"""
 		scan_found = False
 		if self.DATA_IS_LOADED and self.SELECTED_IMG_NUM != None:
+			self.check_skipped_motors()#To get the list of skipped motors
 			for i in range(len(self.SPEC_IMG)):
-				if self.SELECTED_IMG_NUM in self.SPEC_IMG[i]:
+				if (self.SELECTED_IMG_NUM in self.SPEC_IMG[i]) and (self.SPEC_SCAN_LIST[i].colnames[0].upper() not in self.SPEC_SKIPPED_MOTORS):
 					self.SPEC_ACTUAL_SCAN = self.SPEC_SCAN_LIST[i]
 					scan_found = True
 					break
+				else:
+					continue
 			
 		else:
 			self.SPEC_ACTUAL_SCAN = self.SPEC_SCAN_LIST[-1]#if no image is selected, the last scan will be displayed
