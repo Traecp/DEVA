@@ -14,6 +14,7 @@ from numpy import unravel_index
 from scipy import ndimage
 from lmfit import Parameters, minimize
 from DEVA.xpad import libXpad as libX
+from DEVA.utilities import Combination_edf_by_translationXZ as EDF_XZ_combination
 ##############
 ## Graphic library ##
 ##############
@@ -40,8 +41,8 @@ except:
 	from DEVA import xrayutilities
 
 __author__="Tra NGUYEN THANH"
-__version__ = "1.3.2"
-__date__="01/12/2014"
+__version__ = "1.3.3"
+__date__="04/12/2014"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -278,6 +279,7 @@ class MyMainWindow(gtk.Window):
 		self.hometb = gtk.ToolButton(gtk.STOCK_HOME)
 		self.aspecttb = gtk.ToolButton(gtk.STOCK_PAGE_SETUP)
 		self.loadcalibtb = gtk.ToolButton(gtk.STOCK_CONVERT)
+		self.use_dark_tb = gtk.ToolButton(gtk.STOCK_DIALOG_INFO)
 
 		self.toolbar.insert(self.opentb, 0)
 		self.toolbar.insert(self.refreshtb, 1)
@@ -288,9 +290,10 @@ class MyMainWindow(gtk.Window):
 		self.toolbar.insert(self.hometb, 5)
 		self.toolbar.insert(self.aspecttb, 6)
 		self.toolbar.insert(self.loadcalibtb, 7)
+		self.toolbar.insert(self.use_dark_tb, 8)
 
-		self.toolbar.insert(self.sep2, 8)
-		self.toolbar.insert(self.quittb, 9)
+		self.toolbar.insert(self.sep2, 9)
+		self.toolbar.insert(self.quittb, 10)
 
 		self.tooltips = gtk.Tooltips()
 		self.tooltips.set_tip(self.refreshtb,"Reload data files")
@@ -301,6 +304,7 @@ class MyMainWindow(gtk.Window):
 		self.tooltips.set_tip(self.hometb,"Reset image")
 		self.tooltips.set_tip(self.aspecttb,"Change the graph's aspect ratio")
 		self.tooltips.set_tip(self.loadcalibtb,"Load a calibration file (PONI file)")
+		self.tooltips.set_tip(self.use_dark_tb,"Use this image as dark data. Click again to cancel dark substraction.")
 
 		#self.newtb.set_sensitive(False)
 		#self.aspecttb.set_sensitive(False)
@@ -313,7 +317,9 @@ class MyMainWindow(gtk.Window):
 		self.hometb.connect("clicked", self.reset_image)
 		self.aspecttb.connect("clicked", self.change_aspect_ratio)
 		self.loadcalibtb.connect("clicked", self.load_calibration)
+		self.use_dark_tb.connect("clicked", self.get_dark)
 		self.graph_aspect = False
+		self.DARK_CORRECTION = False
 
 		############################# BOXES ###############################################
 		vbox = gtk.VBox()
@@ -760,30 +766,29 @@ class MyMainWindow(gtk.Window):
 		#*****************************************************************************
 		#                  PAGE 3: CORRECTION OF A BATCH EDF
 		#*****************************************************************************
-		self.table_1 = gtk.Table(2,3, False)
-		self.table_2 = gtk.Table(6,5, False)
+		self.table_1 = gtk.Table(3,3, False)
+		self.table_2 = gtk.Table(7,5, False)
 		self.t1_src_folder_txt= gtk.Label("Source folder:")
 		self.t1_src_folder_txt.set_alignment(0,0.5)
 		self.t1_src_path  = gtk.Entry()
 		self.t1_src_path.set_usize(100,0)
 		
-		self.src_dialog = gtk.FileChooserDialog(title="Select a sources folder",action=gtk.FILE_CHOOSER_ACTION_SELECT_FOLDER, buttons = (gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
-		self.src_dialog.set_current_folder(self.current_folder)
 		self.t1_src_button= gtk.Button("Browse")
-		#self.t1_src_button.set_title("Browse")
-		#self.t1_src_button.connect("clicked", self.select_folder,self.src_dialog,self.t1_src_path, "S")
 		self.t1_src_button.connect("clicked", self.select_source_folder)
 		
 		self.t1_des_folder_txt = gtk.Label("Destination folder:")
 		self.t1_des_folder_txt.set_alignment(0,0.5)
 		self.t1_des_path = gtk.Entry()
 		self.t1_des_path.set_usize(100,0)
-		self.des_dialog = gtk.FileChooserDialog(title="Select a destination folder",action=gtk.FILE_CHOOSER_ACTION_SELECT_FOLDER, buttons = (gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
-		self.des_dialog.set_current_folder(self.current_folder)
 		self.t1_des_button = gtk.Button("Browse")
-		#self.t1_des_button.set_title("Browse")
-		#self.t1_des_button.connect("clicked", self.select_folder, self.des_dialog, self.t1_des_path, "D")
 		self.t1_des_button.connect("clicked", self.select_destination_folder)
+		
+		self.t1_dark_img_txt = gtk.Label("Dark image:")
+		self.t1_dark_img_txt.set_alignment(0,0.5)
+		self.t1_dark_img_path = gtk.Entry()
+		self.t1_dark_img_path.set_usize(100,0)
+		self.t1_dark_img_button = gtk.Button("Browse")
+		self.t1_dark_img_button.connect("clicked", self.select_dark_image)
 		
 		self.t2_detector_txt = gtk.Label("Detector: ")
 		self.t2_detector_txt.set_alignment(0,0.5)
@@ -817,6 +822,13 @@ class MyMainWindow(gtk.Window):
 		self.t2_mon_combobox.append_text("d0_cps")
 		self.t2_mon_combobox.append_text("pm01")
 		self.t2_mon_combobox.append_text("pm02")
+		self.t2_mon_combobox.append_text("pm0")
+		self.t2_mon_combobox.append_text("pm1")
+		self.t2_mon_combobox.append_text("pm2")
+		self.t2_mon_combobox.append_text("roi1")
+		self.t2_mon_combobox.append_text("roi2")
+		self.t2_mon_combobox.append_text("roi3")
+		self.t2_mon_combobox.append_text("roi4")
 		self.t2_mon_combobox.set_active(0)
 		
 		self.t2_ref_mon_txt = gtk.Label("Reference monitor (?):")
@@ -828,6 +840,9 @@ class MyMainWindow(gtk.Window):
 		self.t2_img_end_txt = gtk.Label("Image end (?):")
 		self.t2_img_end_txt.set_alignment(0,0.5)
 		self.t2_img_end_entry = gtk.Entry()
+		self.t2_combine_XY = gtk.Label("Combination of X,Y translated images (n & n+1)")
+		self.t2_combine_XY.set_alignment(0,0.5)
+		self.combine_XY = gtk.CheckButton()
 		self.t2_ascii_out = gtk.Label("Save data as ASCII file")
 		self.t2_ascii_out.set_alignment(0,0.5)
 		self.ascii_out = gtk.CheckButton()
@@ -855,6 +870,9 @@ class MyMainWindow(gtk.Window):
 		self.table_1.attach(self.t1_des_folder_txt, 0,1,1,2)
 		self.table_1.attach(self.t1_des_path, 1,2,1,2)
 		self.table_1.attach(self.t1_des_button, 2,3,1,2)
+		self.table_1.attach(self.t1_dark_img_txt, 0,1,2,3)
+		self.table_1.attach(self.t1_dark_img_path, 1,2,2,3)
+		self.table_1.attach(self.t1_dark_img_button, 2,3,2,3)
 		
 		self.table_2.attach(self.t2_detector_txt, 0,1,0,1)
 		self.table_2.attach(self.t2_det_combobox, 1,2,0,1)
@@ -866,8 +884,10 @@ class MyMainWindow(gtk.Window):
 		self.table_2.attach(self.t2_img_start_entry, 1,2,3,4)
 		self.table_2.attach(self.t2_img_end_txt, 0,1,4,5)
 		self.table_2.attach(self.t2_img_end_entry, 1,2,4,5)
-		self.table_2.attach(self.t2_ascii_out, 0,1,5,6)
-		self.table_2.attach(self.ascii_out, 1,2,5,6)
+		self.table_2.attach(self.t2_combine_XY, 0,2,5,6)
+		self.table_2.attach(self.combine_XY, 2,3,5,6)
+		self.table_2.attach(self.t2_ascii_out, 0,1,6,7)
+		self.table_2.attach(self.ascii_out, 1,2,6,7)
 		
 		self.table_2.attach(self.d1_specfile_txt,2,3,0,1)
 		self.table_2.attach(self.d1_specfile_path,3,4,0,1)
@@ -1214,6 +1234,13 @@ class MyMainWindow(gtk.Window):
 			self.popup_info('warning','Impossible to calculate Qx Qz because the detector is not calibrated')
 			return None,None
 
+	def get_dark(self,w):
+		self.DARK_CORRECTION = not self.DARK_CORRECTION
+		if self.SELECTED_IMG_NUM != None:
+			self.DARK_DATA = self.fabioIMG.data
+			#self.DARK_CORRECTION = True
+		print "Use Dark image: ",self.DARK_CORRECTION
+		
 	def on_changed_edf(self,widget,row,col):
 
 		self.clear_notes()
@@ -1274,18 +1301,23 @@ class MyMainWindow(gtk.Window):
 				self.nu_pos.set_text("%s: %.2f"%("Nu",self.nu))
 				self.mu_pos.set_text("%s: %.2f"%("Mu",self.mu))
 			elif manip == "gisaxs":
-				self.del_pos.set_text("%s: %.2f"%("Xsamp",self.motor['xsamp']))
-				self.eta_pos.set_text("%s: %.2f"%("Zsamp",self.motor['zsamp']))
-				self.phi_pos.set_text("%s: %.2f"%("Rsamp",self.motor['rsamp']))
-				self.kphi_pos.set_text("%s: %.2f"%("XstoP",self.motor['XstoP']))
-				self.chi_pos.set_text("%s: %.2f"%("ZstoP",self.motor['ZstoP']))
-				self.nu_pos.set_text("%s: %.2f"%("Xdet",self.motor['Xdet']))
-				self.mu_pos.set_text("%s: %.2f"%("Zdet",self.motor['Zdet']))
+				moteurs = self.motor.keys()
+				self.del_pos.set_text("%s: %.2f"%(moteurs[0],self.motor[moteurs[0]]))
+				self.eta_pos.set_text("%s: %.2f"%(moteurs[1],self.motor[moteurs[1]]))
+				self.phi_pos.set_text("%s: %.2f"%(moteurs[2],self.motor[moteurs[2]]))
+				self.kphi_pos.set_text("%s: %.2f"%(moteurs[3],self.motor[moteurs[3]]))
+				self.chi_pos.set_text("%s: %.2f"%(moteurs[4],self.motor[moteurs[4]]))
+				self.nu_pos.set_text("%s: %.2f"%(moteurs[5],self.motor[moteurs[5]]))
+				self.mu_pos.set_text("%s: %.2f"%(moteurs[6],self.motor[moteurs[6]]))
 			self.time_pos.set_text("Seconds:  %d"%self.count_time)
 		gc.collect() # Clear unused variables
 		#self.data = self.fabioIMG.data
 		self.plot_data()
-		num = self.edf_choosen.split("_")[1]
+		if "-" in self.edf_choosen:
+			spliter = "-"
+		else:
+			spliter = "_"
+		num = self.edf_choosen.split(spliter)[1]
 		num = num.split(".")[0]
 		self.SELECTED_IMG_NUM = int(num)
 		if self.SPEC_IS_LOADED and len(self.SPEC_IMG) != 0:
@@ -1602,10 +1634,11 @@ class MyMainWindow(gtk.Window):
 				self.vmax_spin_btn.set_adjustment(gtk.Adjustment(self.vmax, 0, self.vmax_range, 10, 100, 0))
 			self.vmax_spin_btn.update()
 			
-			self.ax.relim()
-			self.img.set_extent(self.MAIN_EXTENT)
+			#self.ax.relim()
+			#self.img.set_extent(self.MAIN_EXTENT)#******* RECHECK THIS FOR 2THETA-CHI
 			self.ax.set_xlim(self.MAIN_EXTENT[0], self.MAIN_EXTENT[1])
 			self.ax.set_ylim(self.MAIN_EXTENT[2], self.MAIN_EXTENT[3])
+			self.ax.relim()
 			self.canvas.draw()
 			#self.ax.figure.canvas.draw_idle()
 		elif self.notebook.get_current_page() == 1:
@@ -1721,15 +1754,24 @@ class MyMainWindow(gtk.Window):
 		tmp_y = [self.y0, self.y1]
 		tmp_x = N.sort(tmp_x)
 		tmp_y = N.sort(tmp_y)
-		self.xDim0, self.xDim1 = tmp_x[0], tmp_x[1]
-		self.yDim0, self.yDim1 = tmp_y[0], tmp_y[1]
-
-		self.ax.set_xlim(self.xDim0, self.xDim1)
+		#self.xDim0, self.xDim1 = tmp_x[0], tmp_x[1]
+		#self.yDim0, self.yDim1 = tmp_y[0], tmp_y[1]
+		extent_x0, extent_x1 = tmp_x[0],tmp_x[1]
+		#self.ax.set_xlim(self.xDim0, self.xDim1)
+		self.ax.set_xlim(tmp_x[0], tmp_x[1])
 		if self.detector_type not in ["D5", "D1"]:
-			self.ax.set_ylim(self.yDim1, self.yDim0)
+			#self.ax.set_ylim(self.yDim1, self.yDim0)
+			self.ax.set_ylim(tmp_y[1], tmp_y[0])
+			extent_y0, extent_y1 = tmp_y[1],tmp_y[0]
 		else:
-			self.ax.set_ylim(self.yDim0, self.yDim1)
+			#self.ax.set_ylim(self.yDim0, self.yDim1)
+			self.ax.set_ylim(tmp_y[0], tmp_y[1])
+			extent_y0, extent_y1 = tmp_y[0],tmp_y[1]
 		self.cb.ax.set_visible(False)
+		self.MAIN_EXTENT = (extent_x0, extent_x1, extent_y0, extent_y1)
+		#self.img.set_extent(self.MAIN_EXTENT)
+		#self.ax.set_xlim(self.MAIN_EXTENT[0], self.MAIN_EXTENT[1])
+		#self.ax.set_ylim(self.MAIN_EXTENT[2], self.MAIN_EXTENT[3])
 		self.canvas.draw()
 
 	def reset_scale(self,widget):
@@ -1929,6 +1971,13 @@ class MyMainWindow(gtk.Window):
 	def plot_data(self):
 		"""plot the selected edf image"""
 		self.data = self.fabioIMG.data
+		if self.DARK_CORRECTION:
+			try:
+				self.data = self.data - self.DARK_DATA
+				null = (self.data <0)
+				self.data[null] = 0
+			except:
+				pass
 		if self.adj_btn.get_active():
 			adjust = True
 		else:
@@ -2035,7 +2084,7 @@ class MyMainWindow(gtk.Window):
 		else:
 			self.cb.ax.set_visible(True)
 			self.cb2.ax.set_visible(False)
-		#self.img.set_extent(self.MAIN_EXTENT)
+		self.img.set_extent(self.MAIN_EXTENT)
 		#self.ax.set_xlim(0,self.xDim1)
 		#if self.detector_type in ["D5", "D1"]:
 			#self.ax.set_ylim(0,self.yDim1)
@@ -2637,6 +2686,23 @@ class MyMainWindow(gtk.Window):
 		else:
 			pass
 		dialog.destroy()
+		
+	def select_dark_image(self,w):
+		dialog = gtk.FileChooserDialog("Select a dark image",None,gtk.FILE_CHOOSER_ACTION_OPEN,(gtk.STOCK_CANCEL,gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
+		dialog.set_current_folder(self.current_folder)
+		response = dialog.run()
+		if response == gtk.RESPONSE_OK:
+			file_choosen = dialog.get_filename()
+			self.t1_dark_img_path.set_text(file_choosen)
+			self.current_folder = os.path.dirname(file_choosen)
+			self.dark_img_file = file_choosen.decode('utf8')
+			self.dark_img = fabio.open(self.dark_img_file)
+			self.DARK_CORRECTION = True
+			
+		else:
+			self.DARK_CORRECTION = False
+			pass
+		dialog.destroy()
 	
 	def show_proc(self,out_info):
 		self.show_process_info.set_label(out_info)
@@ -2689,6 +2755,78 @@ class MyMainWindow(gtk.Window):
 		menage = "mv *g.edf %s"%self.des_folder
 		os.system(menage)
 		
+	def combine_edf(self, edf_1, edf_2, normalisation, detector_type="D5"):
+		#normalisation: True, False
+		if detector_type == "S70":
+			DET_SIZE_X = 1148
+			DET_SIZE_Y = 578
+		elif detector_type == "D5":
+			DET_SIZE_X = 120
+			DET_SIZE_Y = 578
+			
+		img_1 = fabio.open(edf_1)
+		img_2 = fabio.open(edf_2)
+		
+		if img_1.data.shape==(960,560) or img_1.data.shape==(120,560):
+			d = EDF_XZ_combination.correct_geometry(img_1.data, detector_type = detector_type)
+			img_1.data = d
+		if img_2.data.shape==(960,560) or img_2.data.shape==(120,560):
+			d = EDF_XZ_combination.correct_geometry(img_2.data, detector_type = detector_type)
+			img_2.data = d
+		motor_1 = get_motors(img_1.header)
+		motor_2 = get_motors(img_2.header)
+		counter_1 = get_counters(img_1.header)
+		counter_2 = get_counters(img_2.header)
+		X1 = motor_1['Xdet']
+		X2 = motor_2['Xdet']
+		Z1 = motor_1['Zdet']
+		Z2 = motor_2['Zdet']
+		mon1= counter_1[self.t2_mon_combobox.get_active_text()]
+		mon2= counter_2[self.t2_mon_combobox.get_active_text()]
+		
+		deltaX = X2-X1
+		deltaZ = Z2-Z1
+		pixX   = int(abs(deltaX)/_PIXEL_SIZE)
+		pixZ   = int(abs(deltaZ)/_PIXEL_SIZE)
+		mat_decal_Z = N.zeros(shape=(pixZ, DET_SIZE_Y))
+		mat_decal_X = N.zeros(shape=(DET_SIZE_X+pixZ,pixX))
+		
+		if detector_type == "D5":
+			data_1 = EDF_XZ_combination.image_correction(img_1.data)
+		data_1 = N.rot90(data_1)
+		if deltaZ < 0:
+			data_1 = N.vstack((mat_decal_Z,data_1))
+		else:
+			data_1 = N.vstack((data_1, mat_decal_Z))
+		if deltaX >0:
+			data_1 = N.hstack((mat_decal_X,data_1))
+		else:
+			data_1 = N.hstack((data_1, mat_decal_X))
+		norm_1 = data_1 == 0.
+
+		if detector_type == "D5":
+			data_2 = EDF_XZ_combination.image_correction(img_2.data)
+		data_2 = N.rot90(data_2)
+		if deltaZ < 0:
+			data_2 = N.vstack((data_2,mat_decal_Z))
+		else:
+			data_2 = N.vstack((mat_decal_Z, data_2))
+		if deltaX > 0:
+			data_2 = N.hstack((data_2,mat_decal_X))
+		else:
+			data_2 = N.hstack((mat_decal_X, data_2))
+		norm_2 = data_2 == 0.
+		
+		if normalisation:
+			data_1 = data_1 * self.monitor_ref/mon1
+			data_2 = data_2 * self.monitor_ref/mon2
+		
+		data = (data_1+data_2)/2.0
+		norm = norm_1 + norm_2
+		data[norm] = data[norm] * 2.0
+		#Saving the final image
+		img_1.data = data
+		return img_1
 		
 	def transform(self,edf,adjusted_folder,normalisation):
 		""" transformer edf en edf adjusted (en rajoutant les gaps)
@@ -2719,6 +2857,9 @@ class MyMainWindow(gtk.Window):
 		data = detector.physical.data
 		data = N.rot90(data)
 		
+		#Image cleaning for XPAD D5
+		if self.t2_det_combobox.get_active_text() == "D5":
+			data = EDF_XZ_combination.image_correction(data)
 		#Normalisation
 		if normalisation:
 			monitor_ref = self.monitor_ref
@@ -2763,15 +2904,42 @@ class MyMainWindow(gtk.Window):
 				edf_list = filelist
 			total = len(edf_list)
 			processed = 0
-			for edf in edf_list:
+			img_number_list = N.arange(img_beg, img_end+1)
+			for e in range(len(edf_list)):
 				try:
-					edf_base = edf
-					edf = join(src_folder, edf_base)
-					if self.t2_det_combobox.get_active_text() == "D1":
-						self.geometric_correction_D1(edf, des_folder)
+					if not self.combine_XY.get_active():
+						edf_base = edf_list[e]
+						edf = join(src_folder, edf_base)
+						if self.t2_det_combobox.get_active_text() == "D1":
+							self.geometric_correction_D1(edf, des_folder)
+						else:
+							self.transform(edf, des_folder, normalisation)
+						out_info = "Image %s saved successfully!"%edf_base.split(".")[0]
 					else:
-						self.transform(edf, des_folder, normalisation)
-					out_info = "Image %s saved successfully!"%edf_base.split(".")[0]
+						i = 2*e+1
+						edf_1_base = edf_list[i-1]
+						edf_2_base = edf_list[i]
+						edf_1      = join(src_folder, edf_1_base)
+						edf_2      = join(src_folder, edf_2_base)
+						if self.t2_det_combobox.get_active_text() != "D1":
+							combined_img = self.combine_edf(edf_1, edf_2, normalisation, detector_type = self.t2_det_combobox.get_active_text())
+							#sauver EDF apres correction
+							name = "Combined_%04d_%04d"%(img_number_list[i-1],img_number_list[i])
+							
+							if self.ascii_out.get_active():
+								ext = "dat"
+							else:
+								ext  = "edf"
+							fname = name+"."+ext
+							filename = join(des_folder,fname)
+							if self.ascii_out.get_active():
+								N.savetxt(filename, combined_img.data, header=str(combined_img.header))
+							else:
+								combined_img.write(filename)
+							out_info = "Image %s saved successfully!"%name
+						else:
+							out_info = "This is not applied to D1 detector"
+						
 				except:
 					out_info = "Image %s does not existe or cannot be corrected!"%edf
 				processed +=1.

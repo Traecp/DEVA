@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 __author__ = 'Tra NGUYEN THANH <thanh-tra.nguyen@esrf.fr>'
-__version__ = '1.3.2'
+__version__ = '1.3.3'
 __adv__ = 'setup.py'
 
 
@@ -161,5 +161,6 @@ setup(name=name,
       ext_package = name+'/pyFAI',
       ext_modules=ext_modules,
       cmdclass=cmdclass,
+      zip_safe = False,
       command_options=command_options
       )

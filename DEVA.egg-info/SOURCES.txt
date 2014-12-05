@@ -17,6 +17,7 @@ DEVA/__init__.py
 DEVA.egg-info/PKG-INFO
 DEVA.egg-info/SOURCES.txt
 DEVA.egg-info/dependency_links.txt
+DEVA.egg-info/not-zip-safe
 DEVA.egg-info/top_level.txt
 DEVA/pyFAI/__init__.py
 DEVA/pyFAI/argparse.py
@@ -46,6 +47,7 @@ DEVA/pyFAI/units.py
 DEVA/pyFAI/utils.py
 DEVA/pyFAI/worker.py
 DEVA/utilities/ColoredText.py
+DEVA/utilities/Combination_edf_by_translationXZ.py
 DEVA/utilities/Statistics.py
 DEVA/utilities/__init__.py
 DEVA/xpad/__init__.py
