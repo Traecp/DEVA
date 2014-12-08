@@ -279,7 +279,7 @@ class MyMainWindow(gtk.Window):
 		self.hometb = gtk.ToolButton(gtk.STOCK_HOME)
 		self.aspecttb = gtk.ToolButton(gtk.STOCK_PAGE_SETUP)
 		self.loadcalibtb = gtk.ToolButton(gtk.STOCK_CONVERT)
-		self.use_dark_tb = gtk.ToolButton(gtk.STOCK_DIALOG_INFO)
+		self.use_dark_tb = gtk.ToggleToolButton(gtk.STOCK_DIALOG_INFO)
 
 		self.toolbar.insert(self.opentb, 0)
 		self.toolbar.insert(self.refreshtb, 1)
@@ -317,7 +317,7 @@ class MyMainWindow(gtk.Window):
 		self.hometb.connect("clicked", self.reset_image)
 		self.aspecttb.connect("clicked", self.change_aspect_ratio)
 		self.loadcalibtb.connect("clicked", self.load_calibration)
-		self.use_dark_tb.connect("clicked", self.get_dark)
+		self.use_dark_tb.connect("toggled", self.get_dark)
 		self.graph_aspect = False
 		self.DARK_CORRECTION = False
 
@@ -789,6 +789,7 @@ class MyMainWindow(gtk.Window):
 		self.t1_dark_img_path.set_usize(100,0)
 		self.t1_dark_img_button = gtk.Button("Browse")
 		self.t1_dark_img_button.connect("clicked", self.select_dark_image)
+		self.batch_DARK_CORRECTION = False
 		
 		self.t2_detector_txt = gtk.Label("Detector: ")
 		self.t2_detector_txt.set_alignment(0,0.5)
@@ -938,7 +939,8 @@ class MyMainWindow(gtk.Window):
 		vmax_spin_adj         = gtk.Adjustment(self.vmax, 0, self.vmax_range, 0.5, 10.0, 0.0)
 		self.vmax_spin_btn    = gtk.SpinButton(vmax_spin_adj,1,1)
 		self.vmax_spin_btn.set_numeric(True)
-		self.vmax_spin_btn.set_wrap(True)
+		#self.vmax_spin_btn.set_wrap(True)
+		self.vmax_spin_btn.set_update_policy(gtk.UPDATE_IF_VALID)
 		self.vmax_spin_btn.set_size_request(80,-1)
 		#self.vmax_spin_btn.set_alignment(0,0.5)
 		self.vmax_spin_btn.connect('value-changed',self.scale_update_spin)
@@ -946,7 +948,8 @@ class MyMainWindow(gtk.Window):
 		vmin_spin_adj         = gtk.Adjustment(self.vmin, 0, self.vmax_range, 0.5, 10.0, 0.0)
 		self.vmin_spin_btn    = gtk.SpinButton(vmin_spin_adj,1,1)
 		self.vmin_spin_btn.set_numeric(True)
-		self.vmin_spin_btn.set_wrap(True)
+		#self.vmin_spin_btn.set_wrap(True)
+		self.vmin_spin_btn.set_update_policy(gtk.UPDATE_IF_VALID)
 		self.vmin_spin_btn.set_size_request(80,-1)
 		#self.vmax_spin_btn.set_alignment(0,0.5)
 		self.vmin_spin_btn.connect('value-changed',self.scale_update_spin)
@@ -1235,10 +1238,16 @@ class MyMainWindow(gtk.Window):
 			return None,None
 
 	def get_dark(self,w):
-		self.DARK_CORRECTION = not self.DARK_CORRECTION
-		if self.SELECTED_IMG_NUM != None:
-			self.DARK_DATA = self.fabioIMG.data
-			#self.DARK_CORRECTION = True
+		if self.use_dark_tb.get_active():
+			#self.DARK_CORRECTION = not self.DARK_CORRECTION
+			if self.SELECTED_IMG_NUM != None:
+				self.DARK_DATA = self.fabioIMG.data
+				self.DARK_CORRECTION = True
+			else:
+				self.use_dark_tb.set_active(False)
+				self.DARK_CORRECTION = False
+		else:
+			self.DARK_CORRECTION = False
 		print "Use Dark image: ",self.DARK_CORRECTION
 		
 	def on_changed_edf(self,widget,row,col):
@@ -1319,7 +1328,10 @@ class MyMainWindow(gtk.Window):
 			spliter = "_"
 		num = self.edf_choosen.split(spliter)[1]
 		num = num.split(".")[0]
-		self.SELECTED_IMG_NUM = int(num)
+		try:
+			self.SELECTED_IMG_NUM = int(num)
+		except:
+			self.SELECTED_IMG_NUM = 1
 		if self.SPEC_IS_LOADED and len(self.SPEC_IMG) != 0:
 			self.check_and_update_scan_slider()#Check the scan number and image number --> set the spin button for scan num and the slider for img num
 		return
@@ -1632,7 +1644,7 @@ class MyMainWindow(gtk.Window):
 			else:
 				self.vmin_spin_btn.set_adjustment(gtk.Adjustment(self.vmin, 0, self.vmax_range, 10, 100, 0))
 				self.vmax_spin_btn.set_adjustment(gtk.Adjustment(self.vmax, 0, self.vmax_range, 10, 100, 0))
-			self.vmax_spin_btn.update()
+			#self.vmax_spin_btn.update()
 			
 			#self.ax.relim()
 			#self.img.set_extent(self.MAIN_EXTENT)#******* RECHECK THIS FOR 2THETA-CHI
@@ -1647,7 +1659,7 @@ class MyMainWindow(gtk.Window):
 			self.sld_vmin.set_value(self.vmin)
 			self.vmin_spin_btn.set_adjustment(gtk.Adjustment(self.vmin, 0, self.vmax_range, 0.5, 10.0, 0))
 			self.vmax_spin_btn.set_adjustment(gtk.Adjustment(self.vmax, 0, self.vmax_range, 0.5, 10.0, 0))
-			self.vmax_spin_btn.update()
+			#self.vmax_spin_btn.update()
 			#self.polar_ax.relim()
 			self.plot_PF()
 
@@ -2697,10 +2709,10 @@ class MyMainWindow(gtk.Window):
 			self.current_folder = os.path.dirname(file_choosen)
 			self.dark_img_file = file_choosen.decode('utf8')
 			self.dark_img = fabio.open(self.dark_img_file)
-			self.DARK_CORRECTION = True
+			self.batch_DARK_CORRECTION = True
 			
 		else:
-			self.DARK_CORRECTION = False
+			self.batch_DARK_CORRECTION = False
 			pass
 		dialog.destroy()
 	
@@ -2755,28 +2767,37 @@ class MyMainWindow(gtk.Window):
 		menage = "mv *g.edf %s"%self.des_folder
 		os.system(menage)
 		
-	def combine_edf(self, edf_1, edf_2, normalisation, detector_type="D5"):
+	def combine_edf(self, edf_1, edf_2, normalisation=False, dark_data=None, detector_type="D5"):
 		#normalisation: True, False
-		if detector_type == "S70":
+		#dark_img: fabio object for dark image
+		if detector_type == "D5":
 			DET_SIZE_X = 1148
 			DET_SIZE_Y = 578
-		elif detector_type == "D5":
+		elif detector_type == "S70":
 			DET_SIZE_X = 120
 			DET_SIZE_Y = 578
 			
-		img_1 = fabio.open(edf_1)
-		img_2 = fabio.open(edf_2)
-		
-		if img_1.data.shape==(960,560) or img_1.data.shape==(120,560):
-			d = EDF_XZ_combination.correct_geometry(img_1.data, detector_type = detector_type)
-			img_1.data = d
-		if img_2.data.shape==(960,560) or img_2.data.shape==(120,560):
-			d = EDF_XZ_combination.correct_geometry(img_2.data, detector_type = detector_type)
-			img_2.data = d
-		motor_1 = get_motors(img_1.header)
-		motor_2 = get_motors(img_2.header)
+		img_1     = fabio.open(edf_1)
+		img_2     = fabio.open(edf_2)
+		data_1    = img_1.data
+		data_2    = img_2.data
+		if dark_data != None:
+			data_1 = data_1 - dark_data
+			data_2 = data_2 - dark_data
+			data_1[data_1<0] = 0
+			data_2[data_2<0] = 0
+		motor_1   = get_motors(img_1.header)
+		motor_2   = get_motors(img_2.header)
 		counter_1 = get_counters(img_1.header)
 		counter_2 = get_counters(img_2.header)
+		
+		if data_1.shape==(960,560) or data_1.shape==(120,560):
+			data_1 = EDF_XZ_combination.correct_geometry(data_1, detector_type = detector_type)
+			#img_1.data = d
+		if data_2.shape==(960,560) or data_2.shape==(120,560):
+			data_2 = EDF_XZ_combination.correct_geometry(data_2, detector_type = detector_type)
+			#img_2.data = d
+		
 		X1 = motor_1['Xdet']
 		X2 = motor_2['Xdet']
 		Z1 = motor_1['Zdet']
@@ -2792,7 +2813,7 @@ class MyMainWindow(gtk.Window):
 		mat_decal_X = N.zeros(shape=(DET_SIZE_X+pixZ,pixX))
 		
 		if detector_type == "D5":
-			data_1 = EDF_XZ_combination.image_correction(img_1.data)
+			data_1 = EDF_XZ_combination.image_correction(data_1)
 		data_1 = N.rot90(data_1)
 		if deltaZ < 0:
 			data_1 = N.vstack((mat_decal_Z,data_1))
@@ -2805,7 +2826,7 @@ class MyMainWindow(gtk.Window):
 		norm_1 = data_1 == 0.
 
 		if detector_type == "D5":
-			data_2 = EDF_XZ_combination.image_correction(img_2.data)
+			data_2 = EDF_XZ_combination.image_correction(data_2)
 		data_2 = N.rot90(data_2)
 		if deltaZ < 0:
 			data_2 = N.vstack((data_2,mat_decal_Z))
@@ -2881,79 +2902,87 @@ class MyMainWindow(gtk.Window):
 		
 	def processing(self):
 		self.progressbar.show()
+		#try:
+		src_folder = self.src_folder
+		des_folder = self.des_folder
 		try:
-			src_folder = self.src_folder
-			des_folder = self.des_folder
-			try:
-				img_beg = int(self.t2_img_start_entry.get_text())
-				img_end = int(self.t2_img_end_entry.get_text())
-				beg_end = True
-			except:
-				beg_end = False
-			try:
-				self.monitor_ref = float(self.t2_ref_mon_entry.get_text())
-				normalisation = True
-			except:
-				self.monitor_ref = 1
-				normalisation = False
-			
-			filelist=[i for i in listdir(src_folder) if isfile(join(src_folder,i)) and i.endswith(".edf") or i.endswith(".edf.gz") or i.endswith(".dat") or i.endswith(".dat.gz")]
-			if beg_end:
-				edf_list = select_files_from_list(filelist, img_beg, img_end)
-			else:
-				edf_list = filelist
-			total = len(edf_list)
-			processed = 0
-			img_number_list = N.arange(img_beg, img_end+1)
-			for e in range(len(edf_list)):
-				try:
-					if not self.combine_XY.get_active():
-						edf_base = edf_list[e]
-						edf = join(src_folder, edf_base)
-						if self.t2_det_combobox.get_active_text() == "D1":
-							self.geometric_correction_D1(edf, des_folder)
-						else:
-							self.transform(edf, des_folder, normalisation)
-						out_info = "Image %s saved successfully!"%edf_base.split(".")[0]
-					else:
-						i = 2*e+1
-						edf_1_base = edf_list[i-1]
-						edf_2_base = edf_list[i]
-						edf_1      = join(src_folder, edf_1_base)
-						edf_2      = join(src_folder, edf_2_base)
-						if self.t2_det_combobox.get_active_text() != "D1":
-							combined_img = self.combine_edf(edf_1, edf_2, normalisation, detector_type = self.t2_det_combobox.get_active_text())
-							#sauver EDF apres correction
-							name = "Combined_%04d_%04d"%(img_number_list[i-1],img_number_list[i])
-							
-							if self.ascii_out.get_active():
-								ext = "dat"
-							else:
-								ext  = "edf"
-							fname = name+"."+ext
-							filename = join(des_folder,fname)
-							if self.ascii_out.get_active():
-								N.savetxt(filename, combined_img.data, header=str(combined_img.header))
-							else:
-								combined_img.write(filename)
-							out_info = "Image %s saved successfully!"%name
-						else:
-							out_info = "This is not applied to D1 detector"
-						
-				except:
-					out_info = "Image %s does not existe or cannot be corrected!"%edf
-				processed +=1.
-				fraction = processed/total *100.
-				fraction = int(fraction)
-				self.progressbar.set_fraction(fraction/100.)
-				self.progressbar.set_text(str(fraction)+"%")
-				self.progressbar.set_show_text(True)
-				#while gtk.events_pending():
-					#gtk.main_iteration()
-				self.show_process_info.set_text(out_info)
-				yield True	
+			img_beg = int(self.t2_img_start_entry.get_text())
+			img_end = int(self.t2_img_end_entry.get_text())
+			beg_end = True
 		except:
-			self.popup_info("warning","Please check that you have carefully entered all of the fields.")
+			beg_end = False
+		try:
+			self.monitor_ref = float(self.t2_ref_mon_entry.get_text())
+			normalisation = True
+		except:
+			self.monitor_ref = 1
+			normalisation = False
+		
+		filelist=[i for i in listdir(src_folder) if isfile(join(src_folder,i)) and i.endswith(".edf") or i.endswith(".edf.gz") or i.endswith(".dat") or i.endswith(".dat.gz")]
+		if beg_end:
+			edf_list = select_files_from_list(filelist, img_beg, img_end)
+		else:
+			edf_list = filelist
+		total = len(edf_list)
+		processed = 0
+		img_number_list = N.arange(img_beg, img_end+1)
+		if self.batch_DARK_CORRECTION:
+			dark_data=self.dark_img.data
+			if normalisation:
+				dark_data = dark_data * self.monitor_ref/get_counters(self.dark_img.header)[self.t2_mon_combobox.get_active_text()]
+		else:
+			dark_data = None
+			
+		for e in range(len(edf_list)):
+			#try:
+			if not self.combine_XY.get_active():
+				edf_base = edf_list[e]
+				edf = join(src_folder, edf_base)
+				if self.t2_det_combobox.get_active_text() == "D1":
+					self.geometric_correction_D1(edf, des_folder)
+				else:
+					self.transform(edf, des_folder, normalisation)
+				out_info = "Image %s saved successfully!"%edf_base.split(".")[0]
+			else:
+				i = 2*e+1
+				if i<len(edf_list):
+					edf_1_base = edf_list[i-1]
+					edf_2_base = edf_list[i]
+					edf_1      = join(src_folder, edf_1_base)
+					edf_2      = join(src_folder, edf_2_base)
+					if self.t2_det_combobox.get_active_text() != "D1":
+						combined_img = self.combine_edf(edf_1, edf_2, normalisation=normalisation, dark_data=dark_data, detector_type = self.t2_det_combobox.get_active_text())
+						#sauver EDF apres correction
+						name = "Combined_%04d_%04d"%(img_number_list[i-1],img_number_list[i])
+						
+						if self.ascii_out.get_active():
+							ext = "dat"
+						else:
+							ext  = "edf"
+						fname = name+"."+ext
+						filename = join(des_folder,fname)
+						if self.ascii_out.get_active():
+							N.savetxt(filename, combined_img.data, header=str(combined_img.header))
+						else:
+							combined_img.write(filename)
+						out_info = "Image %s saved successfully!"%name
+					else:
+						out_info = "This is not applied to D1 detector"
+					
+			#except:
+				#out_info = "Image %s does not existe or cannot be corrected!"%edf
+			processed +=1.
+			fraction = processed/total *100.
+			fraction = int(fraction)
+			self.progressbar.set_fraction(fraction/100.)
+			self.progressbar.set_text(str(fraction)+"%")
+			self.progressbar.set_show_text(True)
+			#while gtk.events_pending():
+				#gtk.main_iteration()
+			self.show_process_info.set_text(out_info)
+			yield True	
+		#except:
+			#self.popup_info("warning","Please check that you have carefully entered all of the fields.")
 		#self.progressbar.hide()
 		yield False
 		
