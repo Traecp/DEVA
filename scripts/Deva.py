@@ -1473,11 +1473,7 @@ class MyMainWindow(gtk.Window):
 		for j in range(len(img_list)):
 			#print "Getting ",img_list[j]
 			edf = join(self.edf_folder, img_list[j])
-			data= fabio.open(edf).data
-			self.SPEC_ACTUAL_SCAN_DATA.append(data)
-		self.SPEC_ACTUAL_SCAN_DATA = N.asarray(self.SPEC_ACTUAL_SCAN_DATA)
-		#print "Data size: ",self.SPEC_ACTUAL_SCAN_DATA.shape
-		#print "Test if SCAN DATA is loaded: ",self.SPEC_ACTUAL_SCAN_DATA.shape
+			self.SPEC_ACTUAL_SCAN_DATA.append(fabio.open(edf).data)
 		print "End."
 		#except:
 			#pass
