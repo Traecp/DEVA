@@ -2143,6 +2143,11 @@ class MyMainWindow(gtk.Window):
 				self.tth_title.set_text("X")
 		else:
 			#print "Data shape: ",self.data.shape
+			if self.tth_chi_space_btn.get_active():
+				x[0] = get_index(self.tth_pyFAI,x[0])
+				y[0] = get_index(self.chi_pyFAI,y[0])
+				x[1] = get_index(self.tth_pyFAI,x[1])
+				y[1] = get_index(self.chi_pyFAI,y[1])
 			num = int(N.hypot(x[1]-x[0], y[1]-y[0])) #Number of points to be taken along the line
 			print "Number of points selected: ",num
 			xi, yi = N.linspace(x[0], x[1], num), N.linspace(y[0], y[1], num)
@@ -2211,11 +2216,11 @@ class MyMainWindow(gtk.Window):
 		else:
 			pass
 
-		if self.detector_type=="S70":
-			self.ax.axis([self.xDim0,self.xDim1, self.yDim1,self.yDim0])
-		else:
-			self.ax.axis([self.xDim0, self.xDim1, self.yDim0, self.yDim1])
-
+		#if self.detector_type=="S70":
+			#self.ax.axis([self.xDim0,self.xDim1, self.yDim1,self.yDim0])
+		#else:
+			#self.ax.axis([self.xDim0, self.xDim1, self.yDim0, self.yDim1])
+		self.ax.axis([self.MAIN_EXTENT[0],self.MAIN_EXTENT[1], self.MAIN_EXTENT[2], self.MAIN_EXTENT[3]])
 		self.canvas.draw()
 
 
