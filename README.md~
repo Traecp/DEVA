@@ -16,7 +16,7 @@ INSTALLATION on LINUX
 INSTALLATION on WINDOWS
 ==========================
 + Requirements:
-	- pythonxy (which includes all necessary packages)
+	- pythonxy (https://code.google.com/p/pythonxy/)
 	
 	and 
 	

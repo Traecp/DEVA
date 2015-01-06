@@ -7,7 +7,7 @@ INSTALLATION on LINUX
 + Requirements:
 	- Numpy >= 1.8
 	- Scipy
-	- Matplotlib >= 1.6
+	- Matplotlib >= 1.4
 	- fabio
 	- Cython
 + Installation:
