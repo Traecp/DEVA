@@ -16,11 +16,16 @@ INSTALLATION on LINUX
 INSTALLATION on WINDOWS
 ==========================
 + Requirements:
-	- pythonxy (which includes all necessary packages)
+	- pythonxy (https://code.google.com/p/pythonxy/)
 	
 	and 
 	
-	- fabio, Cython
+	- fabio (https://pypi.python.org/pypi/fabio), Cython (https://pypi.python.org/pypi/Cython/), lmfit (https://pypi.python.org/pypi/lmfit/), matplotlib (you have to reinstall matplotlib unless an error of backend-gdk will rise), PyGTK all in one win32 py27 (http://ftp.gnome.org/pub/GNOME/binaries/win32/pygtk/2.24/pygtk-all-in-one-2.24.2.win32-py2.7.msi)
+	
+	Optional:
+	
+	- pyFAI, xrayutilities
+	
 	
 	If OpenMP not found: Try to install these Microsoft packages:
 	- Windows SDK for Windows Server 2008 and .NET Framework 3.5: http://www.microsoft.com/en-us/download/details.aspx?id=11310
