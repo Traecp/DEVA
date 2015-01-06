@@ -21,20 +21,22 @@ from numpy.distutils.misc_util import get_numpy_include_dirs
 
 if sys.platform in ["linux2", "posix"]:
     openmp = '-fopenmp'
+    spliter = "/"
 elif sys.platform in ["win32", "nt"]:
     openmp = '/openmp'
+    spliter = "\\"
 src = {}
 ext_dir = "DEVA/pyFAI/extensions"
 cython_files = [os.path.splitext(i)[0] for i in glob.glob(os.path.join(ext_dir,"*.pyx"))]
 #print cython_files
 if build_ext:
 	for ext in cython_files:
-		ext0 = ext.split("/")[-1]
+		ext0 = ext.split(spliter)[-1]
 		src[ext0] = os.path.join(".", ext + ".pyx")
 		
 else:
 	for ext in cython_files:
-		ext0 = ext.split("/")[-1]
+		ext0 = ext.split(spliter)[-1]
 		src[ext0] = os.path.join(".", ext + ".c")
 #print src
 hist_ext = Extension("histogram",
