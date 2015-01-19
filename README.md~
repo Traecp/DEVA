@@ -39,3 +39,5 @@ INSTALLATION on WINDOWS
 
 	For the moment let's try to install DEVA with command line on windows: python setup.py install -c mingw32
 	
+	RUNNING: to run DEVA, just open a terminal (or command prompt) and type: Deva.py
+	
