@@ -20,7 +20,6 @@ from DEVA.utilities import Combination_edf_by_translationXZ as EDF_XZ_combinatio
 ##############
 import matplotlib as mpl
 mpl.use('GtkAgg')
-from mpl_toolkits.basemap import Basemap
 from matplotlib.figure import Figure
 #from matplotlib.axes import Subplot
 from matplotlib.backends.backend_gtkagg import FigureCanvasGTKAgg as FigureCanvas
@@ -41,8 +40,8 @@ except:
 	from DEVA import xrayutilities
 
 __author__="Tra NGUYEN THANH"
-__version__ = "1.3.3"
-__date__="04/12/2014"
+__version__ = "1.3.6"
+__date__="22/01/2015"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -57,7 +56,7 @@ mpl.rcParams['figure.subplot.right'] = 0.915
 mpl.rcParams['savefig.dpi'] = 300
 
 #Global variables
-_PIXEL_SIZE = 0.130 #mm
+_PIXEL_SIZE = 130e-6 #m
 _SPEC_IMG_COL = "img" #column containing image number in spec file
 
 def flat_data(data,dynlow, dynhigh):
@@ -239,10 +238,10 @@ class MyMainWindow(gtk.Window):
 	def __init__(self):
 		super(MyMainWindow, self).__init__()
 		self.set_title("DEVA - D2AM EDF Visualisation and Analysis - version %s - Last update: %s"%(__version__, __date__))
-		self.set_size_request(1250, 950)
+		self.set_size_request(1230, 950)
 		#self.modify_bg(gtk.STATE_NORMAL, gtk.gdk.Color(6400, 6400, 6440))
 		self.set_position(gtk.WIN_POS_CENTER)
-		self.set_border_width(10)
+		self.set_border_width(5)
 		#self.set_icon_from_file('DEVA/D2AM.jpg')
 		##################### TOOL BAR ####################################################
 		self.detector_type = "D5" # My detector by default is XPAD D5
@@ -361,29 +360,47 @@ class MyMainWindow(gtk.Window):
 		self.page_batch_correction = gtk.HBox() #For batch correction of EDF
 		
 		#**************************** Geometry setup ******************************************
-		self.geometry_setup_tbl = gtk.Table(3,2,False)
-		self.geometry_manual    = gtk.ToggleButton("CLICK HERE to use the above setup for 2Theta-Chi calculation")
-		self.geometry_manual.connect("toggled", self.manual_calibration)
+		self.geometry_setup_tbl = gtk.Table(3,4,True)
+		self.geometry_manual    = gtk.Button("VALIDATE the above parameters setup")
+		self.geometry_manual.connect("clicked", self.manual_calibration)
 		
-		self.geometry_distance_txt = gtk.Label("Sample-Detector distance (m):")
+		self.geometry_distance_txt = gtk.Label("Distance Samp-Det (m):")
 		self.geometry_distance     = gtk.Entry()
+		self.geometry_distance.set_usize(30,0)
 		self.geometry_distance.set_text("")
-		self.geometry_direct_beam_txt = gtk.Label("Direct beam position X,Y (separated by comma):")
+		self.geometry_direct_beam_txt = gtk.Label("Direct beam X,Y:")
 		self.geometry_direct_beam     = gtk.Entry()
+		self.geometry_direct_beam.set_usize(30,0)
 		self.geometry_direct_beam.set_text("")
 		self.geometry_energy_txt      = gtk.Label("Energy (eV):")
 		self.geometry_energy          = gtk.Entry()
+		self.geometry_energy.set_usize(30,0)
 		self.geometry_energy.set_text("")
 		self.geometry_distance_txt.set_alignment(0,0.5)
 		self.geometry_direct_beam_txt.set_alignment(0,0.5)
 		self.geometry_energy_txt.set_alignment(0,0.5)
 		
+		self.geometry_UB_txt  = gtk.Label("Import a UB matrix file:")
+		self.geometry_browse_UB = gtk.Button("Browse UB file")
+		self.geometry_browse_UB.set_usize(30,0)
+		self.geometry_browse_UB.connect("clicked",self.load_UBfile)
+		self.UB_MATRIX_LOAD = False #By default, no UB matrix file is loaded
+		
+		self.tooltips.set_tip(self.geometry_direct_beam_txt, "Position (in pixel) of the direct beam when all motors are at zero. X and Y position are separated by a comma, e.g. 300.5,650.7")
+		self.tooltips.set_tip(self.geometry_UB_txt, "Import a UB matrix which is a text file with a 3x3 matrix (3 lines, 3 colunms)")
+		
+		self.geometry_UB_txt.set_alignment(0,0.5)
+				
 		self.geometry_setup_tbl.attach(self.geometry_energy_txt, 0,1,0,1)
 		self.geometry_setup_tbl.attach(self.geometry_energy, 1,2,0,1)
 		self.geometry_setup_tbl.attach(self.geometry_distance_txt, 0,1,1,2)
 		self.geometry_setup_tbl.attach(self.geometry_distance, 1,2,1,2)
 		self.geometry_setup_tbl.attach(self.geometry_direct_beam_txt, 0,1,2,3)
 		self.geometry_setup_tbl.attach(self.geometry_direct_beam, 1,2,2,3)
+		
+		self.geometry_setup_tbl.attach(self.geometry_UB_txt, 2,3,0,1)
+		self.geometry_setup_tbl.attach(self.geometry_browse_UB, 3,4,0,1)
+		
 		
 		############################# PAGE1: FIGURES ##########################################
 		self.edf = ""
@@ -418,7 +435,7 @@ class MyMainWindow(gtk.Window):
 		self.vmax_range = self.vmax
 
 		#self.init_image()
-		self.img = self.ax.imshow(self.data,origin='lower',vmin=self.vmin, vmax=self.vmax, cmap=jet, interpolation='nearest',aspect='auto')
+		self.img = self.ax.imshow(self.data,vmin=self.vmin, vmax=self.vmax, cmap=jet, interpolation='nearest',aspect='auto')
 
 		self.canvas  = FigureCanvas(self.fig)
 		#self.main_figure_navBar = NavigationToolbar(self.canvas, self)
@@ -543,43 +560,44 @@ class MyMainWindow(gtk.Window):
 		self.right_panel = gtk.VBox(False,0)
 
 		self.detector_disposition_horizontal = gtk.ToggleButton("Vertical detector")
+		self.detector_disposition_horizontal.set_sensitive(False)
 		self.detector_disposition_horizontal.connect("toggled", self.detector_disposition)
 		self.horizontal_detector = False #By default, the detector is in the vertical position, i.e. 960 rows x 560 cols
 
-		self.linear_scale_btn = gtk.ToggleButton("Linear scale")
+		self.linear_scale_btn = gtk.ToggleButton("Log scale")
 		self.linear_scale_btn.connect("toggled",self.log_update)
-		#self.linear_scale_btn.set_size_request(50,30)
 
 		self.log_scale=0
 
 		self.adj_btn = gtk.CheckButton("Geometry correction")
-		#self.adj_btn.set_size_request(600,30)
 		self.adj_btn.connect("toggled", self.plot_update)
-
-		self.cln_btn = gtk.CheckButton("Clean data")
-		#self.cln_btn.set_size_request(130,30)
-		self.cln_btn.connect("toggled", self.plot_update)
-
-		self.tth_chi_space_btn = gtk.CheckButton("2Theta-Chi space")
-		#self.tth_chi_space_btn.set_size_request(130,30)
-		#self.tth_chi_space_btn.connect("toggled", self.change_space,"TTH")
+		
+		self.detector_space_btn = gtk.RadioButton(None, "Detector map")
+		self.detector_space_btn.set_active(True)
+		self.detector_space_btn.connect("toggled", self.plot_update)
+		
+		self.tth_chi_space_btn = gtk.RadioButton(self.detector_space_btn, "2Theta-Chi map")
 		self.tth_chi_space_btn.connect("toggled", self.plot_update)
+		
+		self.hk_space_btn = gtk.RadioButton(self.detector_space_btn, "HK map")
+		self.hk_space_btn.connect("toggled", self.plot_update)
+		
+		self.hl_space_btn = gtk.RadioButton(self.detector_space_btn, "HL map")
+		self.hl_space_btn.connect("toggled", self.plot_update)
+		
+		self.kl_space_btn = gtk.RadioButton(self.detector_space_btn, "KL map")
+		self.kl_space_btn.connect("toggled", self.plot_update)
 
 		self.save_adj_btn = gtk.Button("Save Corrected EDF")
 		self.save_adj_btn.connect("clicked",self.save_adjust)
 
 		self.separator = gtk.HSeparator()
 		#self.plotXYprofiles_btn = gtk.CheckButton("Plot X,Y profiles") #Plot a cross profile of X and Y data
-		self.plotXYprofiles_btn = gtk.RadioButton(None,"Plot X,Y profiles")
+		self.plotXYprofiles_btn = gtk.RadioButton(None,"X,Y profiles")
 		self.plotXYprofiles_btn.set_active(True)
 		self.arbitrary_profiles_btn = gtk.RadioButton(self.plotXYprofiles_btn,"Arbitrary profiles")
 
-
-		self.q_space_btn = gtk.CheckButton("Q space") #Plot the map in the reciprocal space Qx Qz
-		self.q_space_btn.set_sensitive(False)
-		#self.q_space_btn.connect("toggled",self.change_space,"Q")
-
-		self.show_chi_delta_btn = gtk.CheckButton("Show 2Theta, Chi, d")
+		self.show_chi_delta_btn = gtk.CheckButton("Show 2Theta,Chi")
 		self.show_chi_delta_btn.connect("toggled",self.show_chi_delta)
 		self.show_chi_delta_flag = False
 		self.show_chi_txt   = gtk.Label()
@@ -590,15 +608,21 @@ class MyMainWindow(gtk.Window):
 		self.show_d_txt.set_alignment(0,0)
 		#### Pack these options in a table
 		self.option_table = gtk.Table(5,3,False) #5 rows, 3 cols, homogeneous
-		self.option_table.attach(self.detector_disposition_horizontal, 0,1,0,1)
-		self.option_table.attach(self.linear_scale_btn, 1,2,0,1)
+		
+		self.option_table.attach(self.linear_scale_btn, 0,1,0,1)
+		self.option_table.attach(self.detector_disposition_horizontal, 1,2,0,1)
 		self.option_table.attach(self.save_adj_btn, 2,3,0,1)
-		self.option_table.attach(self.adj_btn, 1,2,1,2)
-		self.option_table.attach(self.cln_btn, 1,2,2,3)
-		self.option_table.attach(self.tth_chi_space_btn,0,1,1,2)
-		self.option_table.attach(self.q_space_btn,0,1,2,3)
+		
+		self.option_table.attach(self.detector_space_btn, 0,1,1,2)
+		self.option_table.attach(self.adj_btn, 0,1,2,3)
 		self.option_table.attach(self.plotXYprofiles_btn,0,1,3,4)
-		self.option_table.attach(self.arbitrary_profiles_btn,1,2,3,4)
+		self.option_table.attach(self.arbitrary_profiles_btn,0,1,4,5)
+		
+		self.option_table.attach(self.tth_chi_space_btn,1,2,1,2)
+		self.option_table.attach(self.hk_space_btn, 1,2,2,3)
+		self.option_table.attach(self.hl_space_btn, 1,2,3,4)
+		self.option_table.attach(self.kl_space_btn, 1,2,4,5)
+		
 		self.option_table.attach(self.show_chi_delta_btn,2,3,1,2)
 		self.option_table.attach(self.show_delta_txt,2,3,2,3)
 		self.option_table.attach(self.show_chi_txt, 2,3,3,4)
@@ -967,17 +991,55 @@ class MyMainWindow(gtk.Window):
 		sld_box.pack_start(self.vmax_spin_btn,False,False,0)
 		sld_box.pack_start(self.slider_reset_btn,False,False,0)
 
-		vbox.pack_start(sld_box,False,False,3)
+		vbox.pack_start(sld_box,False,False,5)
 
 		################# Status bar #################################################
 		#self.status_bar = gtk.EventBox()
-		self.status_bar = gtk.HBox(False,2)
-		#self.status_bar.modify_bg(gtk.STATE_NORMAL, self.status_bar.get_colormap().alloc_color("white"))
-		self.stt = gtk.Fixed()
-		self.x_pos = gtk.Label("X =")
-		self.y_pos = gtk.Label("Y =")
-		self.z_pos = gtk.Label("Z =")
-		#self.edf_pos = gtk.Label("EDF choosen: ")
+		#self.status_bar = gtk.HBox(False,2)
+		##self.status_bar.modify_bg(gtk.STATE_NORMAL, self.status_bar.get_colormap().alloc_color("white"))
+		#self.stt = gtk.Fixed()
+		#self.x_pos = gtk.Label("X =")
+		#self.y_pos = gtk.Label("Y =")
+		#self.z_pos = gtk.Label("Z =")
+		##self.edf_pos = gtk.Label("EDF choosen: ")
+		#self.del_pos = gtk.Label()
+		#self.eta_pos = gtk.Label()
+		#self.phi_pos = gtk.Label()
+		#self.kphi_pos = gtk.Label()
+		#self.chi_pos = gtk.Label()
+		#self.nu_pos  = gtk.Label()
+		#self.mu_pos  = gtk.Label()
+		#self.time_pos  = gtk.Label()
+		#self.stt.put(self.x_pos,10,5)
+		#self.stt.put(self.y_pos,70,5)
+		#self.stt.put(self.z_pos,130,5)
+		##self.stt.put(self.edf_pos,250,5)
+		#self.stt.put(self.del_pos,220,5)
+		#self.stt.put(self.eta_pos,325,5)
+		#self.stt.put(self.phi_pos,425,5)
+		#self.stt.put(self.kphi_pos,525,5)
+		#self.stt.put(self.chi_pos,625,5)
+		#self.stt.put(self.nu_pos,710,5)
+		#self.stt.put(self.mu_pos,790,5)
+		#self.stt.put(self.time_pos,880, 5)
+		#self.status_bar.add(self.stt)
+		self.status_bar = gtk.Table(1,22,True)
+		self.x_pos_txt = gtk.Label("X: ")
+		self.y_pos_txt = gtk.Label("Y: ")
+		self.z_pos_txt = gtk.Label("Z: ")
+		self.x_pos = gtk.Label()
+		self.y_pos = gtk.Label()
+		self.z_pos = gtk.Label()
+		
+		self.del_pos_txt = gtk.Label()
+		self.eta_pos_txt = gtk.Label()
+		self.phi_pos_txt = gtk.Label()
+		self.kphi_pos_txt= gtk.Label()
+		self.chi_pos_txt = gtk.Label()
+		self.nu_pos_txt  = gtk.Label()
+		self.mu_pos_txt  = gtk.Label()
+		self.time_pos_txt= gtk.Label()
+		
 		self.del_pos = gtk.Label()
 		self.eta_pos = gtk.Label()
 		self.phi_pos = gtk.Label()
@@ -986,22 +1048,56 @@ class MyMainWindow(gtk.Window):
 		self.nu_pos  = gtk.Label()
 		self.mu_pos  = gtk.Label()
 		self.time_pos  = gtk.Label()
-		self.stt.put(self.x_pos,10,5)
-		self.stt.put(self.y_pos,70,5)
-		self.stt.put(self.z_pos,130,5)
-		#self.stt.put(self.edf_pos,250,5)
-		self.stt.put(self.del_pos,220,5)
-		self.stt.put(self.eta_pos,325,5)
-		self.stt.put(self.phi_pos,425,5)
-		self.stt.put(self.kphi_pos,525,5)
-		self.stt.put(self.chi_pos,625,5)
-		self.stt.put(self.nu_pos,710,5)
-		self.stt.put(self.mu_pos,790,5)
-		self.stt.put(self.time_pos,880, 5)
-		self.status_bar.add(self.stt)
+		
+		self.x_pos_txt.set_alignment(1,0.5)
+		self.x_pos.set_alignment(0,0.5)
+		self.y_pos_txt.set_alignment(1,0.5)
+		self.y_pos.set_alignment(0,0.5)
+		self.z_pos_txt.set_alignment(1,0.5)
+		self.z_pos.set_alignment(0,0.5)
+		self.del_pos_txt.set_alignment(1,0.5)
+		self.del_pos.set_alignment(0,0.5)
+		self.eta_pos.set_alignment(0,0.5)
+		self.eta_pos_txt.set_alignment(1,0.5)
+		self.phi_pos.set_alignment(0,0.5)
+		self.phi_pos_txt.set_alignment(1,0.5)
+		self.kphi_pos.set_alignment(0,0.5)
+		self.kphi_pos_txt.set_alignment(1,0.5)
+		self.chi_pos.set_alignment(0,0.5)
+		self.chi_pos_txt.set_alignment(1,0.5)
+		self.nu_pos.set_alignment(0,0.5)
+		self.nu_pos_txt.set_alignment(1,0.5)
+		self.mu_pos.set_alignment(0,0.5)
+		self.mu_pos_txt.set_alignment(1,0.5)
+		self.time_pos.set_alignment(0,0.5)
+		self.time_pos_txt.set_alignment(1,0.5)
+		
+		self.status_bar.attach(self.x_pos_txt,0,1,0,1)
+		self.status_bar.attach(self.x_pos,1,2,0,1)
+		self.status_bar.attach(self.y_pos_txt,2,3,0,1)
+		self.status_bar.attach(self.y_pos,3,4,0,1)
+		self.status_bar.attach(self.z_pos_txt,4,5,0,1)
+		self.status_bar.attach(self.z_pos,5,6,0,1)
+		
+		self.status_bar.attach(self.del_pos_txt,6,7,0,1)
+		self.status_bar.attach(self.del_pos,7,8,0,1)
+		self.status_bar.attach(self.eta_pos_txt,8,9,0,1)
+		self.status_bar.attach(self.eta_pos,9,10,0,1)
+		self.status_bar.attach(self.phi_pos_txt,10,11,0,1)
+		self.status_bar.attach(self.phi_pos,11,12,0,1)
+		self.status_bar.attach(self.kphi_pos_txt,12,13,0,1)
+		self.status_bar.attach(self.kphi_pos,13,14,0,1)
+		self.status_bar.attach(self.chi_pos_txt,14,15,0,1)
+		self.status_bar.attach(self.chi_pos,15,16,0,1)
+		self.status_bar.attach(self.nu_pos_txt,16,17,0,1)
+		self.status_bar.attach(self.nu_pos,17,18,0,1)
+		self.status_bar.attach(self.mu_pos_txt,18,19,0,1)
+		self.status_bar.attach(self.mu_pos,19,20,0,1)
+		self.status_bar.attach(self.time_pos_txt,20,21,0,1)
+		self.status_bar.attach(self.time_pos,21,22,0,1)
+		
 		vbox.pack_start(self.status_bar,False,False,0)
-
-
+		
 		self.add(vbox)
 		self.connect("destroy", gtk.main_quit)
 		self.show_all()
@@ -1024,8 +1120,13 @@ class MyMainWindow(gtk.Window):
 		self.cax.clear()
 		self.cax2.clear()
 		self.ax.add_patch(self.rect)
-		self.img = self.ax.imshow(self.data,origin='lower',vmin=self.vmin, vmax=self.vmax, cmap=jet, interpolation='nearest',aspect='auto')
-		self.img.set_extent(self.MAIN_EXTENT)
+		#if self.detector_type=="S70":
+			#self.img = self.ax.imshow(self.data,origin='upper',vmin=self.vmin, vmax=self.vmax, cmap=jet, interpolation='nearest',aspect='auto', extent=self.MAIN_EXTENT)
+		#else:
+			#self.img = self.ax.imshow(self.data,origin='lower',vmin=self.vmin, vmax=self.vmax, cmap=jet, interpolation='nearest',aspect='auto', extent=self.MAIN_EXTENT)
+		self.img = self.ax.imshow(self.data,origin='lower',vmin=self.vmin, vmax=self.vmax, cmap=jet, interpolation='nearest',aspect='auto', extent=self.MAIN_EXTENT)
+		
+		#self.img.set_extent(self.MAIN_EXTENT)
 		if self.log_scale == 0:
 			clabel = r'$Intensity\ (Counts\ per\ second)$'
 		else:
@@ -1040,8 +1141,18 @@ class MyMainWindow(gtk.Window):
 		self.cb2.ax.set_visible(False)
 		
 		if self.tth_chi_space_btn.get_active():
-			self.MAIN_XLABEL.set_text("2Theta (deg.)")
-			self.MAIN_YLABEL.set_text("Chi (deg.)")
+			self.MAIN_XLABEL.set_text(r"$2\theta\ (deg.)$")
+			self.MAIN_YLABEL.set_text(r"$\chi\ (deg.)$")
+		
+		elif self.hk_space_btn.get_active():
+			self.MAIN_XLABEL.set_text(r"$H\ (R.L.U)$")
+			self.MAIN_YLABEL.set_text(r"$K\ (R.L.U)$")
+		elif self.hl_space_btn.get_active():
+			self.MAIN_XLABEL.set_text(r"$H\ (R.L.U)$")
+			self.MAIN_YLABEL.set_text(r"$L\ (R.L.U)$")
+		elif self.kl_space_btn.get_active():
+			self.MAIN_XLABEL.set_text(r"$K\ (R.L.U)$")
+			self.MAIN_YLABEL.set_text(r"$L\ (R.L.U)$")
 		else:
 			self.MAIN_XLABEL.set_text("X (pixel)")
 			self.MAIN_YLABEL.set_text("Y (pixel)")
@@ -1077,13 +1188,6 @@ class MyMainWindow(gtk.Window):
 		self.warning.run()
 		self.warning.destroy()
 
-	def calibration(self, widget):
-		""" Choose an edf image to do calibration
-		The calibration uses the pyFAI-calib program writen by Jerome Kieffer
-		This program takes an EDF image as calibrant, and gives a calibration file (or poni file) xxxx.poni
-		The poni file contains: sample-detector distance, direct beam center, rotation angles in radians around the 3 axis"""
-		cmd = "pyFAI-calib -p 130 -S LaB6.D -w 1.512 "+self.edf
-		os.system(cmd)
     
 	def load_calibration(self, widget):
 		""" load a pre-calib file , PONI file """
@@ -1097,27 +1201,6 @@ class MyMainWindow(gtk.Window):
 			self.ponifile = dialog.get_filename()
 			print "Calibration file is: ",self.ponifile
 			self.azimuthalIntegration = pyFAI.load(self.ponifile)
-			#if self.detector_type=="D5":
-				#self.tableTwoTheta = self.azimuthalIntegration.twoThetaArray((578,1148))
-				#self.tableChi      = self.azimuthalIntegration.chiArray((578,1148))
-				#self.tableChi      = N.degrees(self.tableChi)-90
-			
-			#elif self.detector_type=="S70":
-				##self.azimuthalIntegration.setChiDiscAtZero()
-				#self.tableTwoTheta = self.azimuthalIntegration.twoThetaArray((120,578))
-				#self.tableChi      = self.azimuthalIntegration.chiArray((120,578))
-				#self.tableChi      = N.degrees(self.tableChi)+90
-			#elif self.detector_type=="D1":
-				#self.tableTwoTheta = self.azimuthalIntegration.twoThetaArray((577,913))
-				#self.tableChi      = self.azimuthalIntegration.chiArray((577,913))
-				#self.tableChi      = N.degrees(self.tableChi)-90
-
-				
-			#self.table_dSpace = self.azimuthalIntegration.wavelength / (2*N.sin(self.tableTwoTheta/2.0)) * 1e10 #d in Angstrom
-			#self.tableTwoTheta = N.degrees(self.tableTwoTheta)
-			##self.tableChi      = self.azimuthalIntegration.chiArray((578,1148))
-			##self.tableChi      = N.degrees(self.tableChi)-90
-			##self.tableQ        = self.azimuthalIntegration.qArray((578,1148))
 
 			self.calibrated = True
 			self.calibrated_quantitative = True
@@ -1132,33 +1215,41 @@ class MyMainWindow(gtk.Window):
 	
 	def manual_calibration(self,widget):
 		#***** Check input data
-		if self.geometry_manual.get_active():
-			distance = self.geometry_distance.get_text()
-			energy   = self.geometry_energy.get_text()
-			direct_beam = self.geometry_direct_beam.get_text()
-			distance = float(distance)
-			energy   = float(energy)
-			direct_beam = direct_beam.split(",")
-			direct_beam = [float(direct_beam[0]),float(direct_beam[1])]
-			from scipy.constants import h,c,e
-			poni1 = direct_beam[1]*_PIXEL_SIZE/1000.
-			poni2 = direct_beam[0]*_PIXEL_SIZE/1000.
-			wavelength = h*c/e/energy
+		#if self.geometry_manual.get_active():
 			
-			self.azimuthalIntegration = pyFAI.azimuthalIntegrator.AzimuthalIntegrator(dist=distance,
-																					  poni1=poni1,
-																					  poni2=poni2,
-																					  rot1=None,
-																					  rot2=None,
-																					  rot3=None,
-																					  pixel1=_PIXEL_SIZE/1000.,
-																					  pixel2=_PIXEL_SIZE/1000.,
-																					  wavelength=wavelength)
-			self.calibrated=True
-			self.calibrated_quantitative = False
-			#self.calculation_angular_coordinates()
-		else:
-			self.calibrated=False
+		distance = self.geometry_distance.get_text()
+		energy   = self.geometry_energy.get_text()
+		direct_beam = self.geometry_direct_beam.get_text()
+		distance = float(distance)
+		energy   = float(energy)
+		direct_beam = direct_beam.split(",")
+		direct_beam = [float(direct_beam[0]),float(direct_beam[1])]
+		from scipy.constants import h,c,e
+		poni1 = direct_beam[1]*_PIXEL_SIZE
+		poni2 = direct_beam[0]*_PIXEL_SIZE
+		wavelength = h*c/e/energy
+		
+		qconv = xrayutilities.experiment.QConversion(['y-','x-','z+'],['z+','y-'],[1,0,0])
+		self.experiment = xrayutilities.HXRD([1,0,0],[0,0,1], en=energy, qconv=qconv)
+			
+		self.azimuthalIntegration = pyFAI.azimuthalIntegrator.AzimuthalIntegrator(dist=distance,
+																					poni1=poni1,
+																					poni2=poni2,
+																					rot1=None,
+																					rot2=None,
+																					rot3=None,
+																					pixel1=_PIXEL_SIZE,
+																					pixel2=_PIXEL_SIZE,
+																					wavelength=wavelength)
+		#self.experiment.Ang2Q.init_area('z+','y-', cch1=direct_beam[1], cch2=direct_beam[0], Nch1=Npx1,Nch2=Npx2, pwidth1=px1,pwidth2=px2, distance=distance, detrot=detrot, tiltazimuth=0, tilt=0)
+		
+		self.calibrated=True
+		self.calibrated_quantitative = False
+		MSSG = "Your parameters have been taken into account.\nEnergy = %s eV\nDistance = %s m\nDirect beam position: %s,%s"%(str(energy),str(distance),str(direct_beam[0]),str(direct_beam[1]))
+		self.popup_info("info",MSSG)
+		#self.calculation_angular_coordinates()
+		#else:
+			#self.calibrated=False
 			
 	def calculation_angular_coordinates(self):
 		if self.detector_type=="D5":
@@ -1170,7 +1261,7 @@ class MyMainWindow(gtk.Window):
 			#self.azimuthalIntegration.setChiDiscAtZero()
 			self.tableTwoTheta = self.azimuthalIntegration.twoThetaArray((120,578))
 			self.tableChi      = self.azimuthalIntegration.chiArray((120,578))
-			self.tableChi      = N.degrees(self.tableChi)+90
+			self.tableChi      = N.degrees(self.tableChi)-90
 		elif self.detector_type=="D1":
 			self.tableTwoTheta = self.azimuthalIntegration.twoThetaArray((577,913))
 			self.tableChi      = self.azimuthalIntegration.chiArray((577,913))
@@ -1179,9 +1270,8 @@ class MyMainWindow(gtk.Window):
 			
 		self.table_dSpace = self.azimuthalIntegration.wavelength / (2*N.sin(self.tableTwoTheta/2.0)) * 1e10 #d in Angstrom
 		self.tableTwoTheta = N.degrees(self.tableTwoTheta)
-		#self.tableChi      = self.azimuthalIntegration.chiArray((578,1148))
-		#self.tableChi      = N.degrees(self.tableChi)-90
-		#self.tableQ        = self.azimuthalIntegration.qArray((578,1148))
+		
+		
 	def set_detector(self,widget, det_type):
 		if det_type.upper()=="D5":
 			print "D5 selected"
@@ -1193,7 +1283,8 @@ class MyMainWindow(gtk.Window):
 			self.detm.set_label("XPAD S70")
 			self.detector_type = "S70"
 			self.xDim1 = 560
-			self.yDim1 = 120
+			self.yDim1 = 0
+			self.yDim0 = 120
 
 		elif det_type.upper()=="D1":
 			print "D1 selected"
@@ -1216,26 +1307,6 @@ class MyMainWindow(gtk.Window):
 			self.azimuthalIntegration.rot3 = rot3
 		self.calculation_angular_coordinates()
 		
-	def calc_qxqz(self):
-		""" Calculate Qx Qz """
-		if self.calibrated:
-			self.check_azimuthal_integrator()
-			psi = N.zeros(shape=self.tableTwoTheta.shape)
-			Qmod= self.tableQ
-			Qx  = Qz = psi
-
-			eta = N.ones(shape=self.tableTwoTheta.shape)
-			eta = eta * self.eta
-			psi = eta - self.tableTwoTheta/2.0
-			Qx  = Qmod * N.sin(N.radians(psi))
-			Qz  = Qmod * N.cos(N.radians(psi))
-
-			#self.Qx = Qx
-			#self.Qz = Qz
-			return Qx, Qz
-		else:
-			self.popup_info('warning','Impossible to calculate Qx Qz because the detector is not calibrated')
-			return None,None
 
 	def get_dark(self,w):
 		if self.use_dark_tb.get_active():
@@ -1274,7 +1345,8 @@ class MyMainWindow(gtk.Window):
 		### Data Loading #########
 		self.fabioIMG = fabio.open(self.edf)
 		self.header = self.fabioIMG.header
-		
+		if self.detector_type == "S70":
+			self.fabioIMG.data = N.flipud(self.fabioIMG.data)
 		#print self.header
 		if self.detector_type != "D1":
 			self.counter = get_counters(self.header)
@@ -1283,8 +1355,10 @@ class MyMainWindow(gtk.Window):
 			if len(motor_mne)>1:
 				if 'xsamp' in motor_mne:
 					manip = "gisaxs"
-				else:
+				elif 'del' in motor_mne:
 					manip = "kappapsic"
+				elif 'tth' in motor_mne:
+					manip = "fourc"
 			else:
 				manip = "Unknown"
 			if manip == "kappapsic":
@@ -1295,6 +1369,16 @@ class MyMainWindow(gtk.Window):
 				self.nu    = self.motor['nu']
 				self.mu    = self.motor['mu']
 				self.kphi  = self.motor['kphi']
+			
+			if manip == "fourc":
+				self.delta = self.motor['tth']
+				self.eta   = self.motor['th']
+				self.chi   = self.motor['chi']
+				self.phi   = self.motor['phi']
+				self.nu    = self.motor['nu']
+				self.mu    = self.motor['mu']
+				self.kphi  = self.motor['kphi']
+				
 			elif manip == "gisaxs":
 				self.delta = 0
 				self.eta = 0
@@ -1302,23 +1386,59 @@ class MyMainWindow(gtk.Window):
 			self.count_time = self.counter['sec']
 			#
 			if manip == "kappapsic":
-				self.del_pos.set_text("%s: %.2f"%("Del",self.delta))
-				self.eta_pos.set_text("%s: %.2f"%("Eta",self.eta))
-				self.phi_pos.set_text("%s: %.2f"%("Phi",self.phi))
-				self.kphi_pos.set_text("%s: %.2f"%("Kphi",self.kphi))
-				self.chi_pos.set_text("%s: %.2f"%("Chi",self.chi))
-				self.nu_pos.set_text("%s: %.2f"%("Nu",self.nu))
-				self.mu_pos.set_text("%s: %.2f"%("Mu",self.mu))
+				self.del_pos_txt.set_text("Del: ")
+				self.eta_pos_txt.set_text("Eta: ")
+				self.phi_pos_txt.set_text("Phi: ")
+				self.kphi_pos_txt.set_text("Kphi: ")
+				self.chi_pos_txt.set_text("Chi: ")
+				self.nu_pos_txt.set_text("Nu: ")
+				self.mu_pos_txt.set_text("Mu: ")
+				
+				self.del_pos.set_text("%.2f"%self.delta)
+				self.eta_pos.set_text("%.2f"%self.eta)
+				self.phi_pos.set_text("%.2f"%self.phi)
+				self.kphi_pos.set_text("%.2f"%self.kphi)
+				self.chi_pos.set_text("%.2f"%self.chi)
+				self.nu_pos.set_text("%.2f"%self.nu)
+				self.mu_pos.set_text("%.2f"%self.mu)
+				
+			if manip == "fourc":
+				self.del_pos_txt.set_text("tth: ")
+				self.eta_pos_txt.set_text("th: ")
+				self.phi_pos_txt.set_text("phi: ")
+				self.kphi_pos_txt.set_text("kphi: ")
+				self.chi_pos_txt.set_text("chi: ")
+				self.nu_pos_txt.set_text("nu: ")
+				self.mu_pos_txt.set_text("mu: ")
+				
+				self.del_pos.set_text("%.2f"%self.delta)
+				self.eta_pos.set_text("%.2f"%self.eta)
+				self.phi_pos.set_text("%.2f"%self.phi)
+				self.kphi_pos.set_text("%.2f"%self.kphi)
+				self.chi_pos.set_text("%.2f"%self.chi)
+				self.nu_pos.set_text("%.2f"%self.nu)
+				self.mu_pos.set_text("%.2f"%self.mu)
+				
 			elif manip == "gisaxs":
 				moteurs = self.motor.keys()
-				self.del_pos.set_text("%s: %.2f"%(moteurs[0],self.motor[moteurs[0]]))
-				self.eta_pos.set_text("%s: %.2f"%(moteurs[1],self.motor[moteurs[1]]))
-				self.phi_pos.set_text("%s: %.2f"%(moteurs[2],self.motor[moteurs[2]]))
-				self.kphi_pos.set_text("%s: %.2f"%(moteurs[3],self.motor[moteurs[3]]))
-				self.chi_pos.set_text("%s: %.2f"%(moteurs[4],self.motor[moteurs[4]]))
-				self.nu_pos.set_text("%s: %.2f"%(moteurs[5],self.motor[moteurs[5]]))
-				self.mu_pos.set_text("%s: %.2f"%(moteurs[6],self.motor[moteurs[6]]))
-			self.time_pos.set_text("Seconds:  %d"%self.count_time)
+				self.del_pos_txt.set_text(moteurs[0])
+				self.eta_pos_txt.set_text(moteurs[1])
+				self.phi_pos_txt.set_text(moteurs[2])
+				self.kphi_pos_txt.set_text(moteurs[3])
+				self.chi_pos_txt.set_text(moteurs[4])
+				self.nu_pos_txt.set_text(moteurs[5])
+				self.mu_pos_txt.set_text(moteurs[6])
+				
+				self.del_pos.set_text("%.2f"%self.motor[moteurs[0]])
+				self.eta_pos.set_text("%.2f"%self.motor[moteurs[1]])
+				self.phi_pos.set_text("%.2f"%self.motor[moteurs[2]])
+				self.kphi_pos.set_text("%.2f"%self.motor[moteurs[3]])
+				self.chi_pos.set_text("%.2f"%self.motor[moteurs[4]])
+				self.nu_pos.set_text("%.2f"%self.motor[moteurs[5]])
+				self.mu_pos.set_text("%.2f"%self.motor[moteurs[6]])
+				
+			self.time_pos_txt.set_text("Seconds: ")
+			self.time_pos.set_text("%d"%self.count_time)
 		gc.collect() # Clear unused variables
 		#self.data = self.fabioIMG.data
 		self.plot_data()
@@ -1354,6 +1474,22 @@ class MyMainWindow(gtk.Window):
 		
 		return
 	
+	def load_UBfile(self,widget):
+		dialog = gtk.FileChooserDialog("Select a UB file",None,gtk.FILE_CHOOSER_ACTION_OPEN,(gtk.STOCK_CANCEL,gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
+		dialog.set_current_folder(self.current_folder)
+		response = dialog.run()
+		if response == gtk.RESPONSE_OK:
+			file_choosen = dialog.get_filename()
+			self.UB_FILE = file_choosen
+		else:
+			pass
+		dialog.destroy()
+		self.UB_MATRIX = N.loadtxt(self.UB_FILE)
+		self.UB_MATRIX_LOAD=True
+		print "UB matrix file: ",self.UB_FILE
+		print "UB matrix: \n",self.UB_MATRIX
+		return
+		
 	def update_spec_data(self):
 		self.SPEC_IMG = []
 		self.SPEC_SCAN_LIST = self.SPEC_DATA.scan_list
@@ -1538,6 +1674,14 @@ class MyMainWindow(gtk.Window):
 			this_motor_value = self.SPEC_SCAN_MOTOR_DATA[img_index]
 			this_title = this_title +" - %s = %s"%(scan_motor, this_motor_value)
 			self.MAIN_TITLE.set_text(this_title)
+			if self.tth_chi_space_btn.get_active():
+				self.Angular_space_plot()
+			elif self.hk_space_btn.get_active():
+				self.Reciprocal_space_plot(space="HK")
+			elif self.hl_space_btn.get_active():
+				self.Reciprocal_space_plot(space="HL")
+			elif self.kl_space_btn.get_active():
+				self.Reciprocal_space_plot(space="KL")
 			self.scale_plot()
 			self.canvas.draw()
 			
@@ -1553,7 +1697,7 @@ class MyMainWindow(gtk.Window):
 	
 	def change_scale(self,button, data):
 		if button.get_active():
-			button.set_label("Log scale")
+			button.set_label("Linear scale")
 			data = N.log10(data+1e-6)
 			
 			actual_vmin = self.sld_vmin.get_value()
@@ -1572,7 +1716,7 @@ class MyMainWindow(gtk.Window):
 			self.log_scale = 1
 
 		else:
-			button.set_label("Linear scale")
+			button.set_label("Log scale")
 			actual_vmin = self.sld_vmin.get_value()
 			actual_vmax = self.sld_vmax.get_value()
 			#print "Linear scale called, Actual vmax: ",actual_vmax
@@ -1728,24 +1872,32 @@ class MyMainWindow(gtk.Window):
 
 	def status_update(self,event):
 		if event.inaxes==self.ax:
-			self.x_pos.set_text("X = %d"%event.xdata)
-			self.y_pos.set_text("Y = %d"%event.ydata)
-			self.z_pos.set_text("Z = %d"%self.data[event.ydata,event.xdata])
+			xdata = event.xdata
+			ydata = event.ydata
+			if self.detector_space_btn.get_active():
+				zdata = self.data[int(ydata),int(xdata)]
+			elif self.tth_chi_space_btn.get_active():
+				x = get_index(self.tth_pyFAI, xdata)
+				y = get_index(self.chi_pyFAI, ydata)
+				zdata = self.data[y,x]
+			elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active():
+				x = get_index(self.QGridder.xaxis, xdata)
+				y = get_index(self.QGridder.yaxis, ydata)
+				zdata = self.data[y,x]
+			if self.detector_space_btn.get_active():
+				self.x_pos.set_text("%d"%xdata)
+				self.y_pos.set_text("%d"%ydata)
+			else:
+				self.x_pos.set_text("%.2f"%xdata)
+				self.y_pos.set_text("%.2f"%ydata)
+			self.z_pos.set_text("%d"%zdata)
+			
 			if self.show_chi_delta_flag == True:
 				chi,tth,d = self.calcul_chi_2theta_d(event)
 				self.show_chi_txt.set_text("Chi = %.2f"%chi)
 				self.show_delta_txt.set_text("2Theta = %.2f"%tth)
 				self.show_d_txt.set_text("d = %.4f A"%d)
-
-	def plot_update(self,widget):
-		if self.tth_chi_space_btn.get_active():
-			self.MAIN_XLABEL.set_text("2Theta (deg.)")
-			self.MAIN_YLABEL.set_text("Chi (deg.)")
-		else:
-			self.MAIN_XLABEL.set_text("X (pixel)")
-			self.MAIN_YLABEL.set_text("Y (pixel)")
-		self.plot_data()
-
+	
 	def zoom_on(self,widget):
 		"""For the Zoom button"""
 		if self.zoomtb.get_active():
@@ -1767,14 +1919,16 @@ class MyMainWindow(gtk.Window):
 		extent_x0, extent_x1 = tmp_x[0],tmp_x[1]
 		#self.ax.set_xlim(self.xDim0, self.xDim1)
 		self.ax.set_xlim(tmp_x[0], tmp_x[1])
-		if self.detector_type not in ["D5", "D1"]:
-			#self.ax.set_ylim(self.yDim1, self.yDim0)
-			self.ax.set_ylim(tmp_y[1], tmp_y[0])
-			extent_y0, extent_y1 = tmp_y[1],tmp_y[0]
-		else:
-			#self.ax.set_ylim(self.yDim0, self.yDim1)
-			self.ax.set_ylim(tmp_y[0], tmp_y[1])
-			extent_y0, extent_y1 = tmp_y[0],tmp_y[1]
+		#if self.detector_type not in ["D5", "D1"]:
+			##self.ax.set_ylim(self.yDim1, self.yDim0)
+			#self.ax.set_ylim(tmp_y[1], tmp_y[0])
+			#extent_y0, extent_y1 = tmp_y[1],tmp_y[0]
+		#else:
+			##self.ax.set_ylim(self.yDim0, self.yDim1)
+			#self.ax.set_ylim(tmp_y[0], tmp_y[1])
+			#extent_y0, extent_y1 = tmp_y[0],tmp_y[1]
+		self.ax.set_ylim(tmp_y[0], tmp_y[1])
+		extent_y0, extent_y1 = tmp_y[0],tmp_y[1]
 		self.cb.ax.set_visible(False)
 		self.MAIN_EXTENT = (extent_x0, extent_x1, extent_y0, extent_y1)
 		#self.img.set_extent(self.MAIN_EXTENT)
@@ -1802,13 +1956,18 @@ class MyMainWindow(gtk.Window):
 			self.xDim1 = self.tth_pyFAI.max()
 			self.yDim0 = self.chi_pyFAI.min()
 			self.yDim1 = self.chi_pyFAI.max()
+		if self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active():
+			self.xDim0 = self.QGridder.xaxis.min()
+			self.xDim1 = self.QGridder.xaxis.max()
+			self.yDim0 = self.QGridder.yaxis.min()
+			self.yDim1 = self.QGridder.yaxis.max()
 			
 		self.MAIN_EXTENT = (self.xDim0,self.xDim1,self.yDim0, self.yDim1)
-		self.ax.set_xlim(self.xDim0,self.xDim1)
-		if self.detector_type=="S70":
-			self.ax.set_ylim(self.yDim1,self.yDim0)
-		else:
-			self.ax.set_ylim(self.yDim0,self.yDim1)
+		#if self.detector_type=="S70":
+			#self.MAIN_EXTENT = (self.xDim0,self.xDim1,self.yDim1, self.yDim0)
+		
+		self.ax.set_xlim(self.MAIN_EXTENT[0],self.MAIN_EXTENT[1])
+		self.ax.set_ylim(self.MAIN_EXTENT[2],self.MAIN_EXTENT[3])
 		self.img.set_extent(self.MAIN_EXTENT)
 		if self.data.shape[0] < self.data.shape[1]:
 			self.cb.ax.set_visible(False)
@@ -1967,15 +2126,165 @@ class MyMainWindow(gtk.Window):
 		self.fabioIMG.write(filename)
 		self.popup_info("info", "Image %s is successfully saved !"%filename)
 
-	def change_space(self,widget,space):
-		if space.upper()=="TTH":
-			self.q_space_btn.set_active(False)
-			self.tth_chi_space_btn.set_active(True)
-		elif space.upper()=="Q":
-			self.q_space_btn.set_active(True)
-			self.tth_chi_space_btn.set_active(False)
-		self.plot_data()
 
+	def plot_update(self,widget):
+		if self.tth_chi_space_btn.get_active():
+			self.MAIN_XLABEL.set_text(r"$2\theta\ (deg.)$")
+			self.MAIN_YLABEL.set_text(r"$\chi\ (deg.)$")
+		
+		elif self.hk_space_btn.get_active():
+			self.MAIN_XLABEL.set_text(r"$H\ (R.L.U)$")
+			self.MAIN_YLABEL.set_text(r"$K\ (R.L.U)$")
+		elif self.hl_space_btn.get_active():
+			self.MAIN_XLABEL.set_text(r"$H\ (R.L.U)$")
+			self.MAIN_YLABEL.set_text(r"$L\ (R.L.U)$")
+		elif self.kl_space_btn.get_active():
+			self.MAIN_XLABEL.set_text(r"$K\ (R.L.U)$")
+			self.MAIN_YLABEL.set_text(r"$L\ (R.L.U)$")
+		else:
+			self.MAIN_XLABEL.set_text("X (pixel)")
+			self.MAIN_YLABEL.set_text("Y (pixel)")
+		self.plot_data()
+	
+	def Angular_space_plot(self):
+		if self.calibrated == False:
+			self.popup_info('warning','Please calibrate the detector before checking this!')
+			self.tth_chi_space_btn.set_active(False)
+		elif self.calibrated==True:
+			self.show_chi_delta_btn.set_sensitive(False)
+			self.show_chi_delta_flag=False
+			self.check_azimuthal_integrator()
+			if self.data.shape == (578,1148) and self.detector_type=="D5":
+				self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,578,1148,unit="2th_deg")
+				self.chi_pyFAI = self.chi_pyFAI - 90#180 + self.chi
+			elif self.data.shape==(1148,578) and self.detector_type=="D5":
+				self.data = N.rot90(self.data)
+				self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,578,1148,unit="2th_deg")
+				self.chi_pyFAI = self.chi_pyFAI - 90# 180 + self.chi
+			elif self.data.shape==(120,578) and self.detector_type=="S70":
+				self.azimuthalIntegration.setChiDiscAtZero()
+				self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,120,578,unit="2th_deg")
+				self.chi_pyFAI = self.chi_pyFAI -90
+			#elif self.data.shape==(578,120) and self.detector_type=="S70":
+				#self.data = N.rot90(self.data)
+				##self.azimuthalIntegration.setChiDiscAtZero()
+				#self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,120,578,unit="2th_deg")
+				#self.chi_pyFAI = self.chi_pyFAI -90
+			elif self.data.shape == (577,913) and self.detector_type=="D1":
+				self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,577,913,unit="2th_deg")
+				self.chi_pyFAI = self.chi_pyFAI - 90.#A corriger avec chi gonio
+			else:
+				self.popup_info('warning',"Please correct the detector's geometry prior to proceed this operation!")
+				self.tth_chi_space_btn.set_active(False)
+			
+			self.MAIN_EXTENT = (self.tth_pyFAI.min(), self.tth_pyFAI.max(), self.chi_pyFAI.min(), self.chi_pyFAI.max())
+			#if self.detector_type == "S70":
+				#self.MAIN_EXTENT = (self.tth_pyFAI.min(), self.tth_pyFAI.max(), self.chi_pyFAI.max(), self.chi_pyFAI.min())
+			#print self.MAIN_EXTENT
+		
+	
+	def Reciprocal_space_plot(self,space="HK"):
+		""" space should be HK, HL or KL """
+		if self.calibrated == False:
+			self.popup_info('warning','Please calibrate the detector before checking this!')
+			self.hk_space_btn.set_active(False)
+			self.hl_space_btn.set_active(False)
+			self.kl_space_btn.set_active(False)
+			self.tth_chi_space_btn.set_active(False)
+		elif self.calibrated==True:
+			self.show_chi_delta_btn.set_sensitive(False)
+			self.show_chi_delta_flag=False
+			self.check_azimuthal_integrator()
+			distance = self.azimuthalIntegration.dist
+			#print "Distance: ",distance
+			cch1     = self.azimuthalIntegration.poni1/_PIXEL_SIZE
+			cch2     = self.azimuthalIntegration.poni2/_PIXEL_SIZE
+			detrot   = self.azimuthalIntegration.rot3
+			tiltazimuth=self.azimuthalIntegration.rot1
+			tilt     = self.azimuthalIntegration.rot2
+			if detrot != None:
+				detrot = N.degrees(detrot)*(-1)
+			else:
+				detrot = 0
+			if tiltazimuth != None:
+				tiltazimuth = N.degrees(tiltazimuth)*(-1)
+			else:
+				tiltazimuth = 0
+			if tilt !=None:
+				tilt   = N.degrees(tilt)*(-1)
+			else:
+				tilt   = 0
+			ETA = self.eta
+			CHI = detrot
+			PHI = self.phi 
+			NU  = tiltazimuth
+			DEL = tilt
+			if self.data.shape == (578,1148) and self.detector_type=="D5":
+				Nch1 = 578
+				Nch2 = 1148
+				flag = True
+			elif self.data.shape==(1148,578) and self.detector_type=="D5":
+				self.data = N.rot90(self.data)
+				Nch1 = 578
+				Nch2 = 1148
+				flag = True
+			elif self.data.shape==(120,578) and self.detector_type=="S70":
+				Nch1 = 120
+				Nch2 = 578
+				flag = True
+			elif self.data.shape==(578,120) and self.detector_type=="S70":
+				self.data = N.rot90(self.data)
+				Nch1 = 120
+				Nch2 = 578
+				flag = True
+			elif self.data.shape == (577,913) and self.detector_type=="D1":
+				Nch1 = 577
+				Nch2 = 913
+				flag = True
+			elif self.data.shape == (913,577) and self.detector_type=="D1":
+				self.data = N.rot90(self.data)
+				Nch1 = 577
+				Nch2 = 913
+				flag = True
+			else:
+				flag = False
+			
+			if flag:
+				if self.UB_MATRIX_LOAD:
+					if self.detector_type != "S70":
+						dim1 = 1000
+						dim2 = 500
+					else:
+						dim1 = 578
+						dim2 = 120
+					self.experiment.Ang2Q.init_area('z+','y-', cch1=cch1, cch2=cch2, Nch1=Nch1,Nch2=Nch2, pwidth1=_PIXEL_SIZE,pwidth2=_PIXEL_SIZE, distance=distance, detrot=detrot)
+					#self.Qx,self.Qy,self.Qz = self.experiment.Ang2Q.area(ETA,CHI,PHI,NU,DEL, UB = self.UB_MATRIX)
+					self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL,dettype='area', U = self.UB_MATRIX)
+					self.QGridder = xrayutilities.Gridder2D(dim1, dim2)
+					if space=="HK":
+						self.QGridder(self.H, self.K, self.data)
+					elif space=="HL":
+						self.QGridder(self.H, self.L, self.data)
+					elif space=="KL":
+						self.QGridder(self.K, self.L, self.data)
+					self.data = self.QGridder.data.T
+					self.MAIN_EXTENT = (self.QGridder.xaxis.min(), self.QGridder.xaxis.max(), self.QGridder.yaxis.min(), self.QGridder.yaxis.max())
+					#if self.detector_type == "S70":
+						#self.MAIN_EXTENT = (self.QGridder.xaxis.min(), self.QGridder.xaxis.max(), self.QGridder.yaxis.max(), self.QGridder.yaxis.min())
+			
+				else:
+					self.popup_info('warning','Please import a UB matrix!')
+					self.hk_space_btn.set_active(False)
+					self.hl_space_btn.set_active(False)
+					self.kl_space_btn.set_active(False)
+			else:
+				self.popup_info('warning','Please correct the geometry of the detector prior to proceed this operation!')
+				self.hk_space_btn.set_active(False)
+				self.hl_space_btn.set_active(False)
+				self.kl_space_btn.set_active(False)
+				
+			#print self.MAIN_EXTENT
+	
 	def plot_data(self):
 		"""plot the selected edf image"""
 		self.data = self.fabioIMG.data
@@ -1990,15 +2299,7 @@ class MyMainWindow(gtk.Window):
 			adjust = True
 		else:
 			adjust = False
-
-		if self.cln_btn.get_active():
-			clean = True
-		else:
-			clean = False
-
-		#self.detector = libX.Detector()
-
-
+		
 		### Calculate the median and the deviation of this data ###
 		self.med, self.nMAD = median_stats(self.data)
 		#If the loaded EDF image is already adjusted, shape = (578,1148)
@@ -2024,13 +2325,7 @@ class MyMainWindow(gtk.Window):
 			else:
 				self.adj_btn.set_sensitive(True)
 				adjust = self.adj_btn.get_active()
-
-		if clean:
-			nBad = 0
-			bad = self.data > (self.med + 100*self.nMAD)
-			nBad+=len(self.data[bad])
-			self.data[bad]=0
-		
+				
 		if adjust:
 
 			self.detector.set_data(array=self.data)
@@ -2052,37 +2347,16 @@ class MyMainWindow(gtk.Window):
 		self.MAIN_EXTENT = (self.xDim0, self.xDim1, self.yDim0, self.yDim1)
 		
 		if self.tth_chi_space_btn.get_active():
-			if self.calibrated == False:
-				self.popup_info('warning','Please calibrate the detector before checking this!')
-				self.tth_chi_space_btn.set_active(False)
-			elif self.calibrated==True:
-				self.show_chi_delta_btn.set_sensitive(False)
-				self.show_chi_delta_flag=False
-				self.check_azimuthal_integrator()
-				if self.data.shape == (578,1148) and self.detector_type=="D5":
-					self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,578,1148,unit="2th_deg")
-					self.chi_pyFAI = self.chi_pyFAI - 90#180 + self.chi
-				elif self.data.shape==(1148,578) and self.detector_type=="D5":
-					self.data = N.rot90(self.data)
-					self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,578,1148,unit="2th_deg")
-					self.chi_pyFAI = self.chi_pyFAI - 90# 180 + self.chi
-				elif self.data.shape==(120,578) and self.detector_type=="S70":
-					#self.azimuthalIntegration.setChiDiscAtZero()
-					self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,120,578,unit="2th_deg")
-					self.chi_pyFAI = self.chi_pyFAI + 90
-				elif self.data.shape == (577,913) and self.detector_type=="D1":
-					self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,577,913,unit="2th_deg")
-					self.chi_pyFAI = self.chi_pyFAI - 90.#A corriger avec chi gonio
-				else:
-					self.popup_info('warning','Please adjust the image to proceed this operation!')
-					self.tth_chi_space_btn.set_active(False)
-				
-				self.MAIN_EXTENT = (self.tth_pyFAI.min(), self.tth_pyFAI.max(), self.chi_pyFAI.min(), self.chi_pyFAI.max())
-				#print self.MAIN_EXTENT
+			self.Angular_space_plot()
+		elif self.hk_space_btn.get_active():
+			self.Reciprocal_space_plot(space="HK")
+		elif self.hl_space_btn.get_active():
+			self.Reciprocal_space_plot(space="HL")
+		elif self.kl_space_btn.get_active():
+			self.Reciprocal_space_plot(space="KL")
 		else:
 			self.show_chi_delta_btn.set_sensitive(True)
-			self.show_chi_delta_flag = self.show_chi_delta_btn.get_active()
-
+			self.show_chi_delta_flag = self.show_chi_delta_btn.get_active()		
 		
 		self.scale_plot()
 
@@ -2093,11 +2367,6 @@ class MyMainWindow(gtk.Window):
 			self.cb.ax.set_visible(True)
 			self.cb2.ax.set_visible(False)
 		self.img.set_extent(self.MAIN_EXTENT)
-		#self.ax.set_xlim(0,self.xDim1)
-		#if self.detector_type in ["D5", "D1"]:
-			#self.ax.set_ylim(0,self.yDim1)
-		#elif self.detector_type=="S70":
-			#self.ax.set_ylim(self.yDim1,0)
 		self.slider_update()
 
 	def plot_profiles(self, x, y, cross_line=True):
@@ -2114,6 +2383,9 @@ class MyMainWindow(gtk.Window):
 			if self.tth_chi_space_btn.get_active():
 				x = get_index(self.tth_pyFAI,x)
 				y = get_index(self.chi_pyFAI,y)
+			elif self.hk_space_btn.get_active() or self.kl_space_btn.get_active() or self.hl_space_btn.get_active():
+				x = get_index(self.QGridder.xaxis,x)
+				y = get_index(self.QGridder.yaxis,y)
 			x= int(x)
 			y= int(y)        
 
@@ -2132,6 +2404,35 @@ class MyMainWindow(gtk.Window):
 				coor_Y = self.chi_pyFAI
 				self.chi_title.set_text("Chi")
 				self.tth_title.set_text("2 Theta")
+			
+			elif self.hk_space_btn.get_active():
+				X_label = "H (r.l.u)"
+				Y_label = "K (r.l.u)"
+				yc = self.QGridder.yaxis[y]
+				xc = self.QGridder.xaxis[x]
+				coor_X = self.QGridder.xaxis
+				coor_Y = self.QGridder.yaxis
+				self.chi_title.set_text("K")
+				self.tth_title.set_text("H")
+			
+			elif self.hl_space_btn.get_active():
+				X_label = "H (r.l.u)"
+				Y_label = "L (r.l.u)"
+				yc = self.QGridder.yaxis[y]
+				xc = self.QGridder.xaxis[x]
+				coor_X = self.QGridder.xaxis
+				coor_Y = self.QGridder.yaxis
+				self.chi_title.set_text("L")
+				self.tth_title.set_text("H")
+			elif self.kl_space_btn.get_active():
+				X_label = "K (r.l.u)"
+				Y_label = "L (r.l.u)"
+				yc = self.QGridder.yaxis[y]
+				xc = self.QGridder.xaxis[x]
+				coor_X = self.QGridder.xaxis
+				coor_Y = self.QGridder.yaxis
+				self.chi_title.set_text("L")
+				self.tth_title.set_text("K")
 			else:
 				X_label = "X (pixels)"
 				Y_label = "Y (pixels)"
@@ -2148,6 +2449,14 @@ class MyMainWindow(gtk.Window):
 				y[0] = get_index(self.chi_pyFAI,y[0])
 				x[1] = get_index(self.tth_pyFAI,x[1])
 				y[1] = get_index(self.chi_pyFAI,y[1])
+			
+			elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active():
+				x[0] = get_index(self.QGridder.xaxis,x[0])
+				y[0] = get_index(self.QGridder.yaxis,y[0])
+				x[1] = get_index(self.QGridder.xaxis,x[1])
+				y[1] = get_index(self.QGridder.yaxis,y[1])
+				
+				
 			num = int(N.hypot(x[1]-x[0], y[1]-y[0])) #Number of points to be taken along the line
 			print "Number of points selected: ",num
 			xi, yi = N.linspace(x[0], x[1], num), N.linspace(y[0], y[1], num)
@@ -2161,6 +2470,27 @@ class MyMainWindow(gtk.Window):
 
 				self.chi_title.set_text("Chi")
 				self.tth_title.set_text("2 Theta")
+			
+			elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active():
+				coor_X = N.linspace(self.QGridder.xaxis[int(x[0])], self.QGridder.xaxis[int(x[1])], num)
+				coor_Y = N.linspace(self.QGridder.yaxis[int(y[0])], self.QGridder.yaxis[int(y[1])], num)
+				if self.hk_space_btn.get_active():
+					X_label = "H (r.l.u)"
+					Y_label = "K (r.l.u)"
+					self.chi_title.set_text("K")
+					self.tth_title.set_text("H")
+				elif self.hl_space_btn.get_active():
+					X_label = "H (r.l.u)"
+					Y_label = "L (r.l.u)"
+					self.chi_title.set_text("L")
+					self.tth_title.set_text("H")
+				elif self.kl_space_btn.get_active():
+					X_label = "K (r.l.u)"
+					Y_label = "L (r.l.u)"
+					self.chi_title.set_text("L")
+					self.tth_title.set_text("K")
+			
+			
 			else:
 				X_label = "X (pixels)"
 				Y_label = "Y (pixels)"
@@ -2192,17 +2522,17 @@ class MyMainWindow(gtk.Window):
 		self.profiles_ax2.set_xlabel(X_label, size=12)
 		self.profiles_canvas.draw()
 		# Show the fitted results
-		self.chi_fitted_y0.set_text("%.2f"%Y_fitted_params['y0'].value)
-		self.chi_fitted_xc.set_text("%.2f"%Y_fitted_params['xc'].value)
-		self.chi_fitted_A.set_text("%.2f"%Y_fitted_params['A'].value)
-		self.chi_fitted_w.set_text("%.2f"%Y_fitted_params['w'].value)
-		self.chi_fitted_mu.set_text("%.2f"%Y_fitted_params['mu'].value)
+		self.chi_fitted_y0.set_text("%.4f"%Y_fitted_params['y0'].value)
+		self.chi_fitted_xc.set_text("%.4f"%Y_fitted_params['xc'].value)
+		self.chi_fitted_A.set_text("%.4f"%Y_fitted_params['A'].value)
+		self.chi_fitted_w.set_text("%.4f"%Y_fitted_params['w'].value)
+		self.chi_fitted_mu.set_text("%.4f"%Y_fitted_params['mu'].value)
 
-		self.tth_fitted_y0.set_text("%.2f"%X_fitted_params['y0'].value)
-		self.tth_fitted_xc.set_text("%.2f"%X_fitted_params['xc'].value)
-		self.tth_fitted_A.set_text("%.2f"%X_fitted_params['A'].value)
-		self.tth_fitted_w.set_text("%.2f"%X_fitted_params['w'].value)
-		self.tth_fitted_mu.set_text("%.2f"%X_fitted_params['mu'].value)
+		self.tth_fitted_y0.set_text("%.4f"%X_fitted_params['y0'].value)
+		self.tth_fitted_xc.set_text("%.4f"%X_fitted_params['xc'].value)
+		self.tth_fitted_A.set_text("%.4f"%X_fitted_params['A'].value)
+		self.tth_fitted_w.set_text("%.4f"%X_fitted_params['w'].value)
+		self.tth_fitted_mu.set_text("%.4f"%X_fitted_params['mu'].value)
 
 		self.profiles_refresh()
 		self.canvas.draw()
@@ -2382,13 +2712,13 @@ class MyMainWindow(gtk.Window):
 			return
 
 	def clear_notes(self):
-		if len(self.my_notes)>0:
+		if len(self.my_notes)>1:
 			for txt in self.my_notes:
 				txt.remove()
-		if len(self.lines)>0:
+		if len(self.lines)>1:
 			for line in self.lines:
 				line.remove()
-		if len(self.points)>0:
+		if len(self.points)>1:
 			for p in self.points:
 				p.remove()
 
@@ -2808,8 +3138,8 @@ class MyMainWindow(gtk.Window):
 		
 		deltaX = X2-X1
 		deltaZ = Z2-Z1
-		pixX   = int(abs(deltaX)/_PIXEL_SIZE)
-		pixZ   = int(abs(deltaZ)/_PIXEL_SIZE)
+		pixX   = int(abs(deltaX)*1e-3/_PIXEL_SIZE)
+		pixZ   = int(abs(deltaZ)*1e-3/_PIXEL_SIZE)
 		mat_decal_Z = N.zeros(shape=(pixZ, DET_SIZE_Y))
 		mat_decal_X = N.zeros(shape=(DET_SIZE_X+pixZ,pixX))
 		
