@@ -2714,13 +2714,22 @@ class MyMainWindow(gtk.Window):
 	def clear_notes(self):
 		if len(self.my_notes)>1:
 			for txt in self.my_notes:
-				txt.remove()
+				try:
+					txt.remove()
+				except ValueError:
+					break
 		if len(self.lines)>1:
 			for line in self.lines:
-				line.remove()
+				try:
+					line.remove()
+				except ValueError:
+					break
 		if len(self.points)>1:
 			for p in self.points:
-				p.remove()
+				try:
+					p.remove()
+				except ValueError:
+					break
 
 		self.canvas.draw()
 		self.my_notes = []

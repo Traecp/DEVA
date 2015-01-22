@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 __author__ = 'Tra NGUYEN THANH <thanh-tra.nguyen@esrf.fr>'
-__version__ = '1.3.6'
+__version__ = '1.3.7'
 __adv__ = 'setup.py'
 
 

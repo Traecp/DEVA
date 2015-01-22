@@ -40,7 +40,7 @@ except:
 	from DEVA import xrayutilities
 
 __author__="Tra NGUYEN THANH"
-__version__ = "1.3.6"
+__version__ = "1.3.7"
 __date__="22/01/2015"
 
 #mpl.rcParams['font.size'] = 18.0
@@ -381,12 +381,51 @@ class MyMainWindow(gtk.Window):
 		self.geometry_energy_txt.set_alignment(0,0.5)
 		
 		self.geometry_UB_txt  = gtk.Label("Import a UB matrix file:")
-		self.geometry_browse_UB = gtk.Button("Browse UB file")
+		self.geometry_browse_UB = gtk.ToggleButton("Browse UB file")
 		self.geometry_browse_UB.set_usize(30,0)
-		self.geometry_browse_UB.connect("clicked",self.load_UBfile)
+		self.geometry_browse_UB.connect("toggled",self.load_UBfile)
 		self.UB_MATRIX_LOAD = False #By default, no UB matrix file is loaded
 		
+		self.geometry_substrate_txt  = gtk.Label("Substrate material:")
+		self.geometry_substrate_other_txt  = gtk.Label("If other:")
+		self.geometry_substrate_inplane_txt= gtk.Label("In-plane direction:")
+		self.geometry_substrate_outplane_txt= gtk.Label("Normal direction:")
+		
 		self.tooltips.set_tip(self.geometry_direct_beam_txt, "Position (in pixel) of the direct beam when all motors are at zero. X and Y position are separated by a comma, e.g. 300.5,650.7")
+		self.tooltips.set_tip(self.geometry_substrate_txt, "Substrate material")
+		self.tooltips.set_tip(self.geometry_substrate_other_txt, "The substrate material, i.e. Al, SiO2, CdTe, GaN,...")
+		self.tooltips.set_tip(self.geometry_substrate_inplane_txt, "The substrate in-plane direction - separated by space - for calculation of the orientation matrix.")
+		self.tooltips.set_tip(self.geometry_substrate_outplane_txt, "The substrate out-of-plane direction - separated by space - for calculation of the orientation matrix.")
+		
+		self.geometry_substrate_txt.set_alignment(0,0.5)
+		self.geometry_substrate_other_txt.set_alignment(0,0.5)
+		self.geometry_substrate_inplane_txt.set_alignment(0,0.5)
+		self.geometry_substrate_outplane_txt.set_alignment(0,0.5)
+		self.geometry_substrate = gtk.combo_box_new_text()
+		self.geometry_substrate.set_usize(30,0)
+		self.geometry_substrate.append_text("-- other")
+		self.geometry_substrate.append_text("Si")
+		self.geometry_substrate.append_text("Ge")
+		self.geometry_substrate.append_text("GaAs")
+		self.geometry_substrate.append_text("GaN")
+		self.geometry_substrate.append_text("GaP")
+		self.geometry_substrate.append_text("GaSb")
+		self.geometry_substrate.append_text("InAs")
+		self.geometry_substrate.append_text("InP")
+		self.geometry_substrate.append_text("InSb")
+		self.geometry_substrate.append_text("Al2O3")
+		self.geometry_substrate.set_active(1)
+		
+		self.geometry_substrate_other = gtk.Entry()
+		self.geometry_substrate_other.set_usize(30,0)
+		self.geometry_substrate_other.set_text("")
+		self.geometry_substrate_inplane = gtk.Entry()
+		self.geometry_substrate_inplane.set_usize(30,0)
+		self.geometry_substrate_inplane.set_text("1 1 0")
+		self.geometry_substrate_outplane = gtk.Entry()
+		self.geometry_substrate_outplane.set_usize(30,0)
+		self.geometry_substrate_outplane.set_text("0 0 1")
+		
 		self.tooltips.set_tip(self.geometry_UB_txt, "Import a UB matrix which is a text file with a 3x3 matrix (3 lines, 3 colunms)")
 		
 		self.geometry_UB_txt.set_alignment(0,0.5)
@@ -398,9 +437,17 @@ class MyMainWindow(gtk.Window):
 		self.geometry_setup_tbl.attach(self.geometry_direct_beam_txt, 0,1,2,3)
 		self.geometry_setup_tbl.attach(self.geometry_direct_beam, 1,2,2,3)
 		
-		self.geometry_setup_tbl.attach(self.geometry_UB_txt, 2,3,0,1)
-		self.geometry_setup_tbl.attach(self.geometry_browse_UB, 3,4,0,1)
+		self.geometry_setup_tbl.attach(self.geometry_UB_txt, 0,1,3,4)
+		self.geometry_setup_tbl.attach(self.geometry_browse_UB, 1,2,3,4)
 		
+		self.geometry_setup_tbl.attach(self.geometry_substrate_txt, 2,3,0,1)
+		self.geometry_setup_tbl.attach(self.geometry_substrate,3,4,0,1)
+		self.geometry_setup_tbl.attach(self.geometry_substrate_other_txt, 2,3,1,2)
+		self.geometry_setup_tbl.attach(self.geometry_substrate_other,3,4,1,2)
+		self.geometry_setup_tbl.attach(self.geometry_substrate_inplane_txt,2,3,2,3)
+		self.geometry_setup_tbl.attach(self.geometry_substrate_inplane,3,4,2,3)
+		self.geometry_setup_tbl.attach(self.geometry_substrate_outplane_txt,2,3,3,4)
+		self.geometry_setup_tbl.attach(self.geometry_substrate_outplane,3,4,3,4)
 		
 		############################# PAGE1: FIGURES ##########################################
 		self.edf = ""
@@ -1230,7 +1277,29 @@ class MyMainWindow(gtk.Window):
 		wavelength = h*c/e/energy
 		
 		qconv = xrayutilities.experiment.QConversion(['y-','x-','z+'],['z+','y-'],[1,0,0])
-		self.experiment = xrayutilities.HXRD([1,0,0],[0,0,1], en=energy, qconv=qconv)
+		
+		if self.UB_MATRIX_LOAD:
+			self.experiment = xrayutilities.HXRD([1,0,0],[0,0,1], en=energy, qconv=qconv)
+		else:
+			substrate = self.geometry_substrate.get_active_text()
+			if substrate == "-- other":
+				substrate = self.geometry_substrate_other.get_text()
+			command = "self.substrate = xrayutilities.materials."+substrate
+			exec(command)
+			in_plane = self.geometry_substrate_inplane.get_text()
+			out_of_plane = self.geometry_substrate_outplane.get_text()
+			if in_plane != "" and out_of_plane != "":
+				in_plane = in_plane.split()
+				self.in_plane = N.asarray([int(i) for i in in_plane])
+				out_of_plane = out_of_plane.split()
+				self.out_of_plane = N.asarray([int(i) for i in out_of_plane])
+				self.has_orientation_matrix = True
+				self.experiment = xrayutilities.HXRD(self.substrate.Q(self.in_plane),self.substrate.Q(self.out_of_plane), en=energy, qconv=qconv)
+			else:
+				self.has_orientation_matrix = False
+				self.experiment = xrayutilities.HXRD(self.substrate.Q(1,0,0),self.substrate.Q(0,0,1), en=energy, qconv=qconv)
+			
+		
 			
 		self.azimuthalIntegration = pyFAI.azimuthalIntegrator.AzimuthalIntegrator(dist=distance,
 																					poni1=poni1,
@@ -1245,7 +1314,11 @@ class MyMainWindow(gtk.Window):
 		
 		self.calibrated=True
 		self.calibrated_quantitative = False
-		MSSG = "Your parameters have been taken into account.\nEnergy = %s eV\nDistance = %s m\nDirect beam position: %s,%s"%(str(energy),str(distance),str(direct_beam[0]),str(direct_beam[1]))
+		MSSG = "Your parameters have been taken into account.\nEnergy = %s eV\nDistance = %s m\nDirect beam position: %s,%s\n"%(str(energy),str(distance),str(direct_beam[0]),str(direct_beam[1]))
+		if self.UB_MATRIX_LOAD:
+			MSSG+= "\nYou have imported a UB matrix"
+		else:
+			MSSG+= "\nYou do not have a UB matrix, you have to define your substrate material and it's orientation. This information will be considered to calculate the orientation matrix"
 		self.popup_info("info",MSSG)
 		#self.calculation_angular_coordinates()
 		#else:
@@ -1321,6 +1394,46 @@ class MyMainWindow(gtk.Window):
 			self.DARK_CORRECTION = False
 		print "Use Dark image: ",self.DARK_CORRECTION
 		
+	def read_header(self):
+		if self.detector_type != "D1":
+			self.counter = get_counters(self.header)
+			self.motor = get_motors(self.header)
+			motor_mne = self.motor.keys()
+			if len(motor_mne)>1:
+				if 'xsamp' in motor_mne:
+					self.manip = "gisaxs"
+				elif 'del' in motor_mne:
+					self.manip = "kappapsic"
+				elif 'tth' in motor_mne:
+					self.manip = "fourc"
+			else:
+				self.manip = "Unknown"
+			if self.manip == "kappapsic":
+				self.delta = self.motor['del']
+				self.eta   = self.motor['eta']
+				self.chi   = self.motor['chi']
+				self.phi   = self.motor['phi']
+				self.nu    = self.motor['nu']
+				self.mu    = self.motor['mu']
+				self.kphi  = self.motor['kphi']
+			
+			if self.manip == "fourc":
+				self.delta = self.motor['tth']
+				self.eta   = self.motor['th']
+				self.chi   = self.motor['chi']
+				self.phi   = self.motor['phi']
+				self.nu    = self.motor['nu']
+				self.mu    = self.motor['mu']
+				self.kphi  = self.motor['kphi']
+				
+			elif self.manip == "gisaxs":
+				self.delta = 0
+				self.eta = 0
+				self.phi = self.kphi = self.chi = self.nu = self.mu = 0			
+			self.count_time = self.counter['sec']
+		else:
+			pass
+		
 	def on_changed_edf(self,widget,row,col):
 
 		self.clear_notes()
@@ -1348,94 +1461,58 @@ class MyMainWindow(gtk.Window):
 		if self.detector_type == "S70":
 			self.fabioIMG.data = N.flipud(self.fabioIMG.data)
 		#print self.header
-		if self.detector_type != "D1":
-			self.counter = get_counters(self.header)
-			self.motor = get_motors(self.header)
-			motor_mne = self.motor.keys()
-			if len(motor_mne)>1:
-				if 'xsamp' in motor_mne:
-					manip = "gisaxs"
-				elif 'del' in motor_mne:
-					manip = "kappapsic"
-				elif 'tth' in motor_mne:
-					manip = "fourc"
-			else:
-				manip = "Unknown"
-			if manip == "kappapsic":
-				self.delta = self.motor['del']
-				self.eta   = self.motor['eta']
-				self.chi   = self.motor['chi']
-				self.phi   = self.motor['phi']
-				self.nu    = self.motor['nu']
-				self.mu    = self.motor['mu']
-				self.kphi  = self.motor['kphi']
+		self.read_header()
+		if self.manip == "kappapsic":
+			self.del_pos_txt.set_text("Del: ")
+			self.eta_pos_txt.set_text("Eta: ")
+			self.phi_pos_txt.set_text("Phi: ")
+			self.kphi_pos_txt.set_text("Kphi: ")
+			self.chi_pos_txt.set_text("Chi: ")
+			self.nu_pos_txt.set_text("Nu: ")
+			self.mu_pos_txt.set_text("Mu: ")
 			
-			if manip == "fourc":
-				self.delta = self.motor['tth']
-				self.eta   = self.motor['th']
-				self.chi   = self.motor['chi']
-				self.phi   = self.motor['phi']
-				self.nu    = self.motor['nu']
-				self.mu    = self.motor['mu']
-				self.kphi  = self.motor['kphi']
-				
-			elif manip == "gisaxs":
-				self.delta = 0
-				self.eta = 0
-				self.phi = self.kphi = self.chi = self.nu = self.mu = 0			
-			self.count_time = self.counter['sec']
-			#
-			if manip == "kappapsic":
-				self.del_pos_txt.set_text("Del: ")
-				self.eta_pos_txt.set_text("Eta: ")
-				self.phi_pos_txt.set_text("Phi: ")
-				self.kphi_pos_txt.set_text("Kphi: ")
-				self.chi_pos_txt.set_text("Chi: ")
-				self.nu_pos_txt.set_text("Nu: ")
-				self.mu_pos_txt.set_text("Mu: ")
-				
-				self.del_pos.set_text("%.2f"%self.delta)
-				self.eta_pos.set_text("%.2f"%self.eta)
-				self.phi_pos.set_text("%.2f"%self.phi)
-				self.kphi_pos.set_text("%.2f"%self.kphi)
-				self.chi_pos.set_text("%.2f"%self.chi)
-				self.nu_pos.set_text("%.2f"%self.nu)
-				self.mu_pos.set_text("%.2f"%self.mu)
-				
-			if manip == "fourc":
-				self.del_pos_txt.set_text("tth: ")
-				self.eta_pos_txt.set_text("th: ")
-				self.phi_pos_txt.set_text("phi: ")
-				self.kphi_pos_txt.set_text("kphi: ")
-				self.chi_pos_txt.set_text("chi: ")
-				self.nu_pos_txt.set_text("nu: ")
-				self.mu_pos_txt.set_text("mu: ")
-				
-				self.del_pos.set_text("%.2f"%self.delta)
-				self.eta_pos.set_text("%.2f"%self.eta)
-				self.phi_pos.set_text("%.2f"%self.phi)
-				self.kphi_pos.set_text("%.2f"%self.kphi)
-				self.chi_pos.set_text("%.2f"%self.chi)
-				self.nu_pos.set_text("%.2f"%self.nu)
-				self.mu_pos.set_text("%.2f"%self.mu)
-				
-			elif manip == "gisaxs":
-				moteurs = self.motor.keys()
-				self.del_pos_txt.set_text(moteurs[0])
-				self.eta_pos_txt.set_text(moteurs[1])
-				self.phi_pos_txt.set_text(moteurs[2])
-				self.kphi_pos_txt.set_text(moteurs[3])
-				self.chi_pos_txt.set_text(moteurs[4])
-				self.nu_pos_txt.set_text(moteurs[5])
-				self.mu_pos_txt.set_text(moteurs[6])
-				
-				self.del_pos.set_text("%.2f"%self.motor[moteurs[0]])
-				self.eta_pos.set_text("%.2f"%self.motor[moteurs[1]])
-				self.phi_pos.set_text("%.2f"%self.motor[moteurs[2]])
-				self.kphi_pos.set_text("%.2f"%self.motor[moteurs[3]])
-				self.chi_pos.set_text("%.2f"%self.motor[moteurs[4]])
-				self.nu_pos.set_text("%.2f"%self.motor[moteurs[5]])
-				self.mu_pos.set_text("%.2f"%self.motor[moteurs[6]])
+			self.del_pos.set_text("%.2f"%self.delta)
+			self.eta_pos.set_text("%.2f"%self.eta)
+			self.phi_pos.set_text("%.2f"%self.phi)
+			self.kphi_pos.set_text("%.2f"%self.kphi)
+			self.chi_pos.set_text("%.2f"%self.chi)
+			self.nu_pos.set_text("%.2f"%self.nu)
+			self.mu_pos.set_text("%.2f"%self.mu)
+			
+		if self.manip == "fourc":
+			self.del_pos_txt.set_text("tth: ")
+			self.eta_pos_txt.set_text("th: ")
+			self.phi_pos_txt.set_text("phi: ")
+			self.kphi_pos_txt.set_text("kphi: ")
+			self.chi_pos_txt.set_text("chi: ")
+			self.nu_pos_txt.set_text("nu: ")
+			self.mu_pos_txt.set_text("mu: ")
+			
+			self.del_pos.set_text("%.2f"%self.delta)
+			self.eta_pos.set_text("%.2f"%self.eta)
+			self.phi_pos.set_text("%.2f"%self.phi)
+			self.kphi_pos.set_text("%.2f"%self.kphi)
+			self.chi_pos.set_text("%.2f"%self.chi)
+			self.nu_pos.set_text("%.2f"%self.nu)
+			self.mu_pos.set_text("%.2f"%self.mu)
+			
+		elif self.manip == "gisaxs":
+			moteurs = self.motor.keys()
+			self.del_pos_txt.set_text(moteurs[0])
+			self.eta_pos_txt.set_text(moteurs[1])
+			self.phi_pos_txt.set_text(moteurs[2])
+			self.kphi_pos_txt.set_text(moteurs[3])
+			self.chi_pos_txt.set_text(moteurs[4])
+			self.nu_pos_txt.set_text(moteurs[5])
+			self.mu_pos_txt.set_text(moteurs[6])
+			
+			self.del_pos.set_text("%.2f"%self.motor[moteurs[0]])
+			self.eta_pos.set_text("%.2f"%self.motor[moteurs[1]])
+			self.phi_pos.set_text("%.2f"%self.motor[moteurs[2]])
+			self.kphi_pos.set_text("%.2f"%self.motor[moteurs[3]])
+			self.chi_pos.set_text("%.2f"%self.motor[moteurs[4]])
+			self.nu_pos.set_text("%.2f"%self.motor[moteurs[5]])
+			self.mu_pos.set_text("%.2f"%self.motor[moteurs[6]])
 				
 			self.time_pos_txt.set_text("Seconds: ")
 			self.time_pos.set_text("%d"%self.count_time)
@@ -1475,19 +1552,24 @@ class MyMainWindow(gtk.Window):
 		return
 	
 	def load_UBfile(self,widget):
-		dialog = gtk.FileChooserDialog("Select a UB file",None,gtk.FILE_CHOOSER_ACTION_OPEN,(gtk.STOCK_CANCEL,gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
-		dialog.set_current_folder(self.current_folder)
-		response = dialog.run()
-		if response == gtk.RESPONSE_OK:
-			file_choosen = dialog.get_filename()
-			self.UB_FILE = file_choosen
+		if self.geometry_browse_UB.get_active():
+			dialog = gtk.FileChooserDialog("Select a UB file",None,gtk.FILE_CHOOSER_ACTION_OPEN,(gtk.STOCK_CANCEL,gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
+			dialog.set_current_folder(self.current_folder)
+			response = dialog.run()
+			if response == gtk.RESPONSE_OK:
+				file_choosen = dialog.get_filename()
+				self.UB_FILE = file_choosen
+			else:
+				pass
+			dialog.destroy()
+			self.UB_MATRIX = N.loadtxt(self.UB_FILE)
+			self.UB_MATRIX_LOAD=True
+			self.geometry_browse_UB.set_text("UB imported")
+			print "UB matrix file: ",self.UB_FILE
+			print "UB matrix: \n",self.UB_MATRIX
 		else:
-			pass
-		dialog.destroy()
-		self.UB_MATRIX = N.loadtxt(self.UB_FILE)
-		self.UB_MATRIX_LOAD=True
-		print "UB matrix file: ",self.UB_FILE
-		print "UB matrix: \n",self.UB_MATRIX
+			self.UB_MATRIX_LOAD = False
+			self.geometry_browse_UB.set_text("Browse UB file")
 		return
 		
 	def update_spec_data(self):
@@ -1600,6 +1682,7 @@ class MyMainWindow(gtk.Window):
 		#print "Actual image number: ",actual_img_num
 		#print self.SPEC_ACTUAL_SCAN_IMG
 		self.SPEC_ACTUAL_SCAN_DATA = []
+		self.SPEC_ACTUAL_SCAN_HEADER=[]
 		#try:
 		self.SPEC_ACTUAL_SCAN_IMG_NAMES = select_files_from_list(self.store[self.edf_folder], self.SPEC_ACTUAL_SCAN_IMG[0], self.SPEC_ACTUAL_SCAN_IMG[-1])
 		
@@ -1610,6 +1693,7 @@ class MyMainWindow(gtk.Window):
 			#print "Getting ",img_list[j]
 			edf = join(self.edf_folder, img_list[j])
 			self.SPEC_ACTUAL_SCAN_DATA.append(fabio.open(edf).data)
+			self.SPEC_ACTUAL_SCAN_HEADER.append(fabio.open(edf).header)
 		print "End."
 		#except:
 			#pass
@@ -1654,7 +1738,12 @@ class MyMainWindow(gtk.Window):
 	
 	def slider_plot_scan(self, widget):
 		self.plot_scan()
-		
+	
+	def update_integrator(self):
+		self.read_header()
+		self.check_azimuthal_integrator()
+		return
+	
 	def plot_scan(self):
 		#try:
 		if len(self.SPEC_ACTUAL_SCAN_DATA)>0:
@@ -1664,6 +1753,7 @@ class MyMainWindow(gtk.Window):
 			img_index = N.where(self.SPEC_ACTUAL_SCAN_IMG == img_num)
 			img_index = img_index[0][0]
 			self.data = self.SPEC_ACTUAL_SCAN_DATA[img_index]
+			self.header = self.SPEC_ACTUAL_SCAN_HEADER[img_index]
 			if self.adj_btn.get_active():
 				if self.data.shape == (960,560) or self.data.shape == (120,560):
 					self.data = self.correct_geometry(self.data)
@@ -1674,6 +1764,8 @@ class MyMainWindow(gtk.Window):
 			this_motor_value = self.SPEC_SCAN_MOTOR_DATA[img_index]
 			this_title = this_title +" - %s = %s"%(scan_motor, this_motor_value)
 			self.MAIN_TITLE.set_text(this_title)
+			
+			self.update_integrator()
 			if self.tth_chi_space_btn.get_active():
 				self.Angular_space_plot()
 			elif self.hk_space_btn.get_active():
@@ -1682,8 +1774,12 @@ class MyMainWindow(gtk.Window):
 				self.Reciprocal_space_plot(space="HL")
 			elif self.kl_space_btn.get_active():
 				self.Reciprocal_space_plot(space="KL")
+			
+			
 			self.scale_plot()
-			self.canvas.draw()
+			self.img.set_extent(self.MAIN_EXTENT)
+			self.slider_update()
+			#self.canvas.draw()
 			
 			self.SELECTED_IMG_NUM = img_num
 			if isfile(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index])):
@@ -2250,33 +2346,32 @@ class MyMainWindow(gtk.Window):
 				flag = False
 			
 			if flag:
+				
+				if self.detector_type != "S70":
+					dim1 = 800
+					dim2 = 300
+				else:
+					dim1 = 400
+					dim2 = 100
+				self.experiment.Ang2Q.init_area('z+','y-', cch1=cch1, cch2=cch2, Nch1=Nch1,Nch2=Nch2, pwidth1=_PIXEL_SIZE,pwidth2=_PIXEL_SIZE, distance=distance, detrot=detrot)
 				if self.UB_MATRIX_LOAD:
-					if self.detector_type != "S70":
-						dim1 = 1000
-						dim2 = 500
-					else:
-						dim1 = 578
-						dim2 = 120
-					self.experiment.Ang2Q.init_area('z+','y-', cch1=cch1, cch2=cch2, Nch1=Nch1,Nch2=Nch2, pwidth1=_PIXEL_SIZE,pwidth2=_PIXEL_SIZE, distance=distance, detrot=detrot)
 					#self.Qx,self.Qy,self.Qz = self.experiment.Ang2Q.area(ETA,CHI,PHI,NU,DEL, UB = self.UB_MATRIX)
 					self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL,dettype='area', U = self.UB_MATRIX)
-					self.QGridder = xrayutilities.Gridder2D(dim1, dim2)
-					if space=="HK":
-						self.QGridder(self.H, self.K, self.data)
-					elif space=="HL":
-						self.QGridder(self.H, self.L, self.data)
-					elif space=="KL":
-						self.QGridder(self.K, self.L, self.data)
-					self.data = self.QGridder.data.T
-					self.MAIN_EXTENT = (self.QGridder.xaxis.min(), self.QGridder.xaxis.max(), self.QGridder.yaxis.min(), self.QGridder.yaxis.max())
-					#if self.detector_type == "S70":
-						#self.MAIN_EXTENT = (self.QGridder.xaxis.min(), self.QGridder.xaxis.max(), self.QGridder.yaxis.max(), self.QGridder.yaxis.min())
-			
 				else:
-					self.popup_info('warning','Please import a UB matrix!')
-					self.hk_space_btn.set_active(False)
-					self.hl_space_btn.set_active(False)
-					self.kl_space_btn.set_active(False)
+					#self.Qx,self.Qy,self.Qz = self.experiment.Ang2Q.area(ETA,CHI,PHI,NU,DEL)
+					self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL, mat=self.substrate, dettype='area')
+				
+				self.QGridder = xrayutilities.Gridder2D(dim1, dim2)
+				if space=="HK":
+					self.QGridder(self.H, self.K, self.data)
+				elif space=="HL":
+					self.QGridder(self.H, self.L, self.data)
+				elif space=="KL":
+					self.QGridder(self.K, self.L, self.data)
+				self.data = self.QGridder.data.T
+				self.MAIN_EXTENT = (self.QGridder.xaxis.min(), self.QGridder.xaxis.max(), self.QGridder.yaxis.min(), self.QGridder.yaxis.max())
+				
+				
 			else:
 				self.popup_info('warning','Please correct the geometry of the detector prior to proceed this operation!')
 				self.hk_space_btn.set_active(False)
@@ -2714,13 +2809,22 @@ class MyMainWindow(gtk.Window):
 	def clear_notes(self):
 		if len(self.my_notes)>1:
 			for txt in self.my_notes:
-				txt.remove()
+				try:
+					txt.remove()
+				except ValueError:
+					break
 		if len(self.lines)>1:
 			for line in self.lines:
-				line.remove()
+				try:
+					line.remove()
+				except ValueError:
+					break
 		if len(self.points)>1:
 			for p in self.points:
-				p.remove()
+				try:
+					p.remove()
+				except ValueError:
+					break
 
 		self.canvas.draw()
 		self.my_notes = []
