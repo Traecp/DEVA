@@ -40,8 +40,8 @@ except:
 	from DEVA import xrayutilities
 
 __author__="Tra NGUYEN THANH"
-__version__ = "1.3.7"
-__date__="22/01/2015"
+__version__ = "1.3.8"
+__date__="23/01/2015"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -681,16 +681,27 @@ class MyMainWindow(gtk.Window):
 		self.profiles_log_btn.connect("toggled",self.profiles_update)
 		self.profiles_export_data_btn = gtk.Button("Export data")
 		self.profiles_export_data_btn.connect("clicked",self.profiles_export)
+		integration_width = gtk.Label(" Profile integration width: ")
+		
+		self.integration_width = gtk.Entry()
+		self.integration_width.set_text("10")
+		self.integration_width.set_usize(40,0)
+		
+		self.tooltips.set_tip(self.integration_width,"Integration width in pixel. This is not applied to arbitrary profile")
 
 		self.profiles_option_box = gtk.HBox(False,0)
 		self.profiles_option_box.pack_start(self.profiles_log_btn, False, False, 0)
 		self.profiles_option_box.pack_start(self.profiles_export_data_btn, False, False, 0)
+		self.profiles_option_box.pack_start(integration_width, False,False,0)
+		self.profiles_option_box.pack_start(self.integration_width,False,False,0)
 		### Figure of profiles plot
 		self.fig_profiles = Figure()
-		self.profiles_ax1 = self.fig_profiles.add_subplot(211)
-		self.profiles_ax1.set_title("Y profile", size=12)
-		self.profiles_ax2 = self.fig_profiles.add_subplot(212)
-		self.profiles_ax2.set_xlabel("X profile", size=12)
+		self.profiles_ax2 = self.fig_profiles.add_subplot(211)
+		self.profiles_ax2.set_xlabel("X profile", size=14)
+		self.profiles_ax1 = self.fig_profiles.add_subplot(212)
+		self.profiles_ax1.set_xlabel("Y profile", size=14)
+		
+		self.fig_profiles.subplots_adjust(bottom=0.1, top=0.95, hspace=0.30)
 		self.profiles_canvas = FigureCanvas(self.fig_profiles)
 		self.profiles_canvas.set_size_request(450,50)
 		self.profiles_navBar = NavigationToolbar(self.profiles_canvas, self)
@@ -727,25 +738,25 @@ class MyMainWindow(gtk.Window):
 		self.tth_fitted_mu = gtk.Label()
 
 		self.fit_results_table.attach(title,0,3,0,1)
-		self.fit_results_table.attach(self.chi_title,1,2,1,2)
-		self.fit_results_table.attach(self.tth_title,2,3,1,2)
+		self.fit_results_table.attach(self.chi_title,2,3,1,2)
+		self.fit_results_table.attach(self.tth_title,1,2,1,2)
 		self.fit_results_table.attach(y0,0,1,2,3)
 		self.fit_results_table.attach(xc,0,1,3,4)
 		self.fit_results_table.attach(A,0,1,4,5)
 		self.fit_results_table.attach(w,0,1,5,6)
 		self.fit_results_table.attach(mu,0,1,6,7)
 
-		self.fit_results_table.attach(self.chi_fitted_y0,1,2,2,3)
-		self.fit_results_table.attach(self.chi_fitted_xc,1,2,3,4)
-		self.fit_results_table.attach(self.chi_fitted_A,1,2,4,5)
-		self.fit_results_table.attach(self.chi_fitted_w,1,2,5,6)
-		self.fit_results_table.attach(self.chi_fitted_mu,1,2,6,7)
+		self.fit_results_table.attach(self.chi_fitted_y0,2,3,2,3)
+		self.fit_results_table.attach(self.chi_fitted_xc,2,3,3,4)
+		self.fit_results_table.attach(self.chi_fitted_A,2,3,4,5)
+		self.fit_results_table.attach(self.chi_fitted_w,2,3,5,6)
+		self.fit_results_table.attach(self.chi_fitted_mu,2,3,6,7)
 
-		self.fit_results_table.attach(self.tth_fitted_y0,2,3,2,3)
-		self.fit_results_table.attach(self.tth_fitted_xc,2,3,3,4)
-		self.fit_results_table.attach(self.tth_fitted_A,2,3,4,5)
-		self.fit_results_table.attach(self.tth_fitted_w,2,3,5,6)
-		self.fit_results_table.attach(self.tth_fitted_mu,2,3,6,7)
+		self.fit_results_table.attach(self.tth_fitted_y0,1,2,2,3)
+		self.fit_results_table.attach(self.tth_fitted_xc,1,2,3,4)
+		self.fit_results_table.attach(self.tth_fitted_A,1,2,4,5)
+		self.fit_results_table.attach(self.tth_fitted_w,1,2,5,6)
+		self.fit_results_table.attach(self.tth_fitted_mu,1,2,6,7)
 
 		#### PACK the right panel
 		self.right_panel.pack_start(self.option_table, False, False, 0)
@@ -1254,7 +1265,7 @@ class MyMainWindow(gtk.Window):
 			print "is calibrated? ",self.calibrated
 			self.geometry_manual.set_active(False)
 			self.canvas.draw()
-			s = self.ponifile.split("/")[-1]
+			s = os.path.basename(self.ponifile)
 			self.popup_info("info","This detector is calibrated with the PONI file %s!!!"%s)
 		else:
 			pass
@@ -1316,9 +1327,10 @@ class MyMainWindow(gtk.Window):
 		self.calibrated_quantitative = False
 		MSSG = "Your parameters have been taken into account.\nEnergy = %s eV\nDistance = %s m\nDirect beam position: %s,%s\n"%(str(energy),str(distance),str(direct_beam[0]),str(direct_beam[1]))
 		if self.UB_MATRIX_LOAD:
-			MSSG+= "\nYou have imported a UB matrix"
+			MSSG+= "\nYou have imported a UB matrix. If you donot want to use this UB matrix anymore, click the browse button again.\n\nYour actual UB matrix is:\n%s"%str(self.UB_MATRIX)
 		else:
-			MSSG+= "\nYou do not have a UB matrix, you have to define your substrate material and it's orientation. This information will be considered to calculate the orientation matrix"
+			MSSG+= "\nYou do not have a UB matrix, you have to define your substrate material and it's orientation. This information will be considered to calculate the orientation matrix\n"
+			MSSG+= "\nYour actual choise:\nSubstrate material: %s\nIn-plane direction: %s\nOut-of-plane direction: %s"%(str(substrate), str(self.in_plane), str(self.out_of_plane))
 		self.popup_info("info",MSSG)
 		#self.calculation_angular_coordinates()
 		#else:
@@ -1394,10 +1406,10 @@ class MyMainWindow(gtk.Window):
 			self.DARK_CORRECTION = False
 		print "Use Dark image: ",self.DARK_CORRECTION
 		
-	def read_header(self):
+	def read_header(self,header):
 		if self.detector_type != "D1":
-			self.counter = get_counters(self.header)
-			self.motor = get_motors(self.header)
+			self.counter = get_counters(header)
+			self.motor = get_motors(header)
 			motor_mne = self.motor.keys()
 			if len(motor_mne)>1:
 				if 'xsamp' in motor_mne:
@@ -1406,8 +1418,8 @@ class MyMainWindow(gtk.Window):
 					self.manip = "kappapsic"
 				elif 'tth' in motor_mne:
 					self.manip = "fourc"
-			else:
-				self.manip = "Unknown"
+				else:
+					self.manip = "Unknown"
 			if self.manip == "kappapsic":
 				self.delta = self.motor['del']
 				self.eta   = self.motor['eta']
@@ -1417,7 +1429,7 @@ class MyMainWindow(gtk.Window):
 				self.mu    = self.motor['mu']
 				self.kphi  = self.motor['kphi']
 			
-			if self.manip == "fourc":
+			elif self.manip == "fourc":
 				self.delta = self.motor['tth']
 				self.eta   = self.motor['th']
 				self.chi   = self.motor['chi']
@@ -1432,7 +1444,10 @@ class MyMainWindow(gtk.Window):
 				self.phi = self.kphi = self.chi = self.nu = self.mu = 0			
 			self.count_time = self.counter['sec']
 		else:
-			pass
+			self.del_pos_txt.set_text("For instant the header of D1 detector is not stored in the image. We have to write some code to read motor info from spec file")
+			self.manip = "Unknown"
+			self.count_time=0
+			#pass
 		
 	def on_changed_edf(self,widget,row,col):
 
@@ -1461,7 +1476,7 @@ class MyMainWindow(gtk.Window):
 		if self.detector_type == "S70":
 			self.fabioIMG.data = N.flipud(self.fabioIMG.data)
 		#print self.header
-		self.read_header()
+		self.read_header(self.header)
 		if self.manip == "kappapsic":
 			self.del_pos_txt.set_text("Del: ")
 			self.eta_pos_txt.set_text("Eta: ")
@@ -1479,7 +1494,7 @@ class MyMainWindow(gtk.Window):
 			self.nu_pos.set_text("%.2f"%self.nu)
 			self.mu_pos.set_text("%.2f"%self.mu)
 			
-		if self.manip == "fourc":
+		elif self.manip == "fourc":
 			self.del_pos_txt.set_text("tth: ")
 			self.eta_pos_txt.set_text("th: ")
 			self.phi_pos_txt.set_text("phi: ")
@@ -1514,8 +1529,8 @@ class MyMainWindow(gtk.Window):
 			self.nu_pos.set_text("%.2f"%self.motor[moteurs[5]])
 			self.mu_pos.set_text("%.2f"%self.motor[moteurs[6]])
 				
-			self.time_pos_txt.set_text("Seconds: ")
-			self.time_pos.set_text("%d"%self.count_time)
+		self.time_pos_txt.set_text("Seconds: ")
+		self.time_pos.set_text("%d"%self.count_time)
 		gc.collect() # Clear unused variables
 		#self.data = self.fabioIMG.data
 		self.plot_data()
@@ -1564,12 +1579,12 @@ class MyMainWindow(gtk.Window):
 			dialog.destroy()
 			self.UB_MATRIX = N.loadtxt(self.UB_FILE)
 			self.UB_MATRIX_LOAD=True
-			self.geometry_browse_UB.set_text("UB imported")
+			self.geometry_browse_UB.set_label("UB imported")
 			print "UB matrix file: ",self.UB_FILE
 			print "UB matrix: \n",self.UB_MATRIX
 		else:
 			self.UB_MATRIX_LOAD = False
-			self.geometry_browse_UB.set_text("Browse UB file")
+			self.geometry_browse_UB.set_label("Browse UB file")
 		return
 		
 	def update_spec_data(self):
@@ -1739,11 +1754,6 @@ class MyMainWindow(gtk.Window):
 	def slider_plot_scan(self, widget):
 		self.plot_scan()
 	
-	def update_integrator(self):
-		self.read_header()
-		self.check_azimuthal_integrator()
-		return
-	
 	def plot_scan(self):
 		#try:
 		if len(self.SPEC_ACTUAL_SCAN_DATA)>0:
@@ -1765,7 +1775,8 @@ class MyMainWindow(gtk.Window):
 			this_title = this_title +" - %s = %s"%(scan_motor, this_motor_value)
 			self.MAIN_TITLE.set_text(this_title)
 			
-			self.update_integrator()
+			#if not self.detector_space_btn.get_active():
+			self.read_header(self.header)
 			if self.tth_chi_space_btn.get_active():
 				self.Angular_space_plot()
 			elif self.hk_space_btn.get_active():
@@ -2134,7 +2145,8 @@ class MyMainWindow(gtk.Window):
 
 		if response==gtk.RESPONSE_OK:
 			folder=dialog.get_filename()
-			folder_basename = folder.split("/")[-1]
+			#folder_basename = folder.split("/")[-1]
+			folder_basename = os.path.basename(os.path.dirname(folder))
 			#print folder
 			main_store= [i for i in listdir(folder) if isfile(join(folder,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
 			self.store = {}
@@ -2466,6 +2478,12 @@ class MyMainWindow(gtk.Window):
 
 	def plot_profiles(self, x, y, cross_line=True):
 		"""Line x = 2theta profile, Column y = Chi profile, if not transform in 2theta,chi space, the X,Y profiles are plotted in detector coordinates"""
+		integration_width = self.integration_width.get_text()
+		if integration_width=="":
+			integration_width = 10
+		else:
+			integration_width = int(integration_width)
+			
 		if cross_line:
 			x=x[0]
 			y=y[0]
@@ -2484,11 +2502,11 @@ class MyMainWindow(gtk.Window):
 			x= int(x)
 			y= int(y)        
 
-			self.profiles_data_X = self.data[y-5:y+5,:].sum(axis=0)
-			self.profiles_data_X = self.profiles_data_X / 10.
+			self.profiles_data_X = self.data[y-integration_width/2:y+integration_width/2,:].sum(axis=0)
+			self.profiles_data_X = self.profiles_data_X / integration_width
 
-			self.profiles_data_Y = self.data[:, x-5:x+5].sum(axis=-1)
-			self.profiles_data_Y = self.profiles_data_Y / 10.
+			self.profiles_data_Y = self.data[:, x-integration_width/2:x+integration_width/2].sum(axis=-1)
+			self.profiles_data_Y = self.profiles_data_Y / integration_width
 
 			if self.tth_chi_space_btn.get_active():
 				X_label = "2 Theta (deg)"
@@ -2538,7 +2556,7 @@ class MyMainWindow(gtk.Window):
 				self.chi_title.set_text("Y")
 				self.tth_title.set_text("X")
 		else:
-			#print "Data shape: ",self.data.shape
+			#This is for arbitrary profile
 			if self.tth_chi_space_btn.get_active():
 				x[0] = get_index(self.tth_pyFAI,x[0])
 				y[0] = get_index(self.chi_pyFAI,y[0])
@@ -2608,13 +2626,13 @@ class MyMainWindow(gtk.Window):
 		self.profiles_ax1.plot(coor_Y, self.profiles_data_Y, color='blue', lw=1.5)
 		Y_fitted_params, Y_fitted_data = fit(coor_Y, self.profiles_data_Y, yc, arbitrary= not cross_line)
 		self.profiles_ax1.plot(coor_Y, Y_fitted_data, color='red', lw=1, alpha=0.8)
-		self.profiles_ax1.set_title(Y_label, size=12)
+		self.profiles_ax1.set_xlabel(Y_label, size=14)
 
 		# The TTH or Horizontal (X) profile (ax2):
 		self.profiles_ax2.plot(coor_X, self.profiles_data_X, color='blue', lw=1.5)
 		X_fitted_params, X_fitted_data = fit(coor_X, self.profiles_data_X, xc, arbitrary= not cross_line)
 		self.profiles_ax2.plot(coor_X, X_fitted_data, color='red', lw=1, alpha=0.8)
-		self.profiles_ax2.set_xlabel(X_label, size=12)
+		self.profiles_ax2.set_xlabel(X_label, size=14)
 		self.profiles_canvas.draw()
 		# Show the fitted results
 		self.chi_fitted_y0.set_text("%.4f"%Y_fitted_params['y0'].value)
@@ -3322,13 +3340,14 @@ class MyMainWindow(gtk.Window):
 			norm_factor = monitor_ref/monitor
 			data = data * norm_factor
 		#sauver EDF apres correction
-		name = edf.split("/")[-1]
+		name = os.path.basename(edf)
 		name_adjusted = name.split(".")[0]+"_corrected"
 		if self.ascii_out.get_active():
 			ext = "dat"
 		else:
 			ext  = name.split(".")[1]
-		filename = adjusted_folder+"/"+name_adjusted+"."+ext
+		#filename = adjusted_folder+"/"+name_adjusted+"."+ext
+		filename = join(adjusted_folder, name_adjusted+"."+ext)
 		if self.ascii_out.get_active():
 			N.savetxt(filename, data, header=str(header))
 		else:
