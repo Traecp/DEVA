@@ -40,8 +40,8 @@ except:
 	from DEVA import xrayutilities
 
 __author__="Tra NGUYEN THANH"
-__version__ = "1.3.8"
-__date__="23/01/2015"
+__version__ = "1.3.9"
+__date__="26/01/2015"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -1178,6 +1178,7 @@ class MyMainWindow(gtk.Window):
 		self.cax.clear()
 		self.cax2.clear()
 		self.ax.add_patch(self.rect)
+		self.IMG_ZOOMED = False
 		#if self.detector_type=="S70":
 			#self.img = self.ax.imshow(self.data,origin='upper',vmin=self.vmin, vmax=self.vmax, cmap=jet, interpolation='nearest',aspect='auto', extent=self.MAIN_EXTENT)
 		#else:
@@ -1777,17 +1778,25 @@ class MyMainWindow(gtk.Window):
 			
 			#if not self.detector_space_btn.get_active():
 			self.read_header(self.header)
-			if self.tth_chi_space_btn.get_active():
+			if self.detector_space_btn.get_active():
+				self.MAIN_EXTENT = (0, self.data.shape[1], 0, self.data.shape[0])
+			elif self.tth_chi_space_btn.get_active():
 				self.Angular_space_plot()
 			elif self.hk_space_btn.get_active():
 				self.Reciprocal_space_plot(space="HK")
+				#print "X shape: ",self.QGridder.xaxis.shape
 			elif self.hl_space_btn.get_active():
 				self.Reciprocal_space_plot(space="HL")
 			elif self.kl_space_btn.get_active():
 				self.Reciprocal_space_plot(space="KL")
 			
+			#print "Data shape: ",self.data.shape
 			
 			self.scale_plot()
+			#if self.IMG_ZOOMED == True:
+				#self.img.set_extent(self.ZOOM_EXTENT)
+			#else:
+				#self.img.set_extent(self.MAIN_EXTENT)
 			self.img.set_extent(self.MAIN_EXTENT)
 			self.slider_update()
 			#self.canvas.draw()
@@ -1895,8 +1904,12 @@ class MyMainWindow(gtk.Window):
 			
 			#self.ax.relim()
 			#self.img.set_extent(self.MAIN_EXTENT)#******* RECHECK THIS FOR 2THETA-CHI
-			self.ax.set_xlim(self.MAIN_EXTENT[0], self.MAIN_EXTENT[1])
-			self.ax.set_ylim(self.MAIN_EXTENT[2], self.MAIN_EXTENT[3])
+			if self.IMG_ZOOMED == True:
+				self.ax.set_xlim(self.ZOOM_EXTENT[0], self.ZOOM_EXTENT[1])
+				self.ax.set_ylim(self.ZOOM_EXTENT[2], self.ZOOM_EXTENT[3])
+			else:
+				self.ax.set_xlim(self.MAIN_EXTENT[0], self.MAIN_EXTENT[1])
+				self.ax.set_ylim(self.MAIN_EXTENT[2], self.MAIN_EXTENT[3])
 			self.ax.relim()
 			self.canvas.draw()
 			#self.ax.figure.canvas.draw_idle()
@@ -1952,7 +1965,7 @@ class MyMainWindow(gtk.Window):
 		x = event.xdata
 		y = event.ydata
 		self.check_azimuthal_integrator()
-		chi = self.tableChi[y,x] -90.#+ self.chi
+		chi = self.tableChi[y,x]# -90.#+ self.chi
 		tth = self.tableTwoTheta[y,x]
 		d   = self.table_dSpace[y,x]
 		return chi, tth, d
@@ -1990,6 +2003,7 @@ class MyMainWindow(gtk.Window):
 			elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active():
 				x = get_index(self.QGridder.xaxis, xdata)
 				y = get_index(self.QGridder.yaxis, ydata)
+				#print "x=%d y=%d"%(x,y)
 				zdata = self.data[y,x]
 			if self.detector_space_btn.get_active():
 				self.x_pos.set_text("%d"%xdata)
@@ -2000,10 +2014,26 @@ class MyMainWindow(gtk.Window):
 			self.z_pos.set_text("%d"%zdata)
 			
 			if self.show_chi_delta_flag == True:
-				chi,tth,d = self.calcul_chi_2theta_d(event)
-				self.show_chi_txt.set_text("Chi = %.2f"%chi)
-				self.show_delta_txt.set_text("2Theta = %.2f"%tth)
-				self.show_d_txt.set_text("d = %.4f A"%d)
+				if self.detector_space_btn.get_active():
+					chi,tth,d = self.calcul_chi_2theta_d(event)
+					self.show_chi_txt.set_text("Chi = %.2f"%chi)
+					self.show_delta_txt.set_text("2Theta = %.2f"%tth)
+					self.show_d_txt.set_text("d = %.4f A"%d)
+				elif self.tth_chi_space_btn.get_active():
+					tth = event.xdata
+					chi = event.ydata
+					d   = self.azimuthalIntegration.wavelength / (2*N.sin(N.radians(tth/2.0))) * 1e10 #d in Angstrom
+					self.show_chi_txt.set_text("Chi = %.2f"%chi)
+					self.show_delta_txt.set_text("2Theta = %.2f"%tth)
+					self.show_d_txt.set_text("d = %.4f A"%d)
+				#elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active():
+					#h = event.xdata
+					#k = event.ydata
+					#l = 
+					
+					#self.show_chi_txt.set_text("H = %.2f"%h)
+					#self.show_delta_txt.set_text("K = %.2f"%k)
+					#self.show_d_txt.set_text("L = %.2f"%l)
 	
 	def zoom_on(self,widget):
 		"""For the Zoom button"""
@@ -2041,6 +2071,8 @@ class MyMainWindow(gtk.Window):
 		#self.img.set_extent(self.MAIN_EXTENT)
 		#self.ax.set_xlim(self.MAIN_EXTENT[0], self.MAIN_EXTENT[1])
 		#self.ax.set_ylim(self.MAIN_EXTENT[2], self.MAIN_EXTENT[3])
+		self.IMG_ZOOMED = True
+		self.ZOOM_EXTENT = (extent_x0, extent_x1, extent_y0, extent_y1)
 		self.canvas.draw()
 
 	def reset_scale(self,widget):
@@ -2053,7 +2085,11 @@ class MyMainWindow(gtk.Window):
 		self.slider_update()
 
 	def reset_image(self,widget):
+		self.Do_reset_image()
+		
+	def Do_reset_image(self):
 		"""For the Home button"""
+		self.IMG_ZOOMED = False
 		self.xDim0 = 0
 		self.xDim1 = self.data.shape[1]
 		self.yDim0 = 0
@@ -2252,6 +2288,7 @@ class MyMainWindow(gtk.Window):
 		else:
 			self.MAIN_XLABEL.set_text("X (pixel)")
 			self.MAIN_YLABEL.set_text("Y (pixel)")
+		self.Do_reset_image()
 		self.plot_data()
 	
 	def Angular_space_plot(self):
@@ -2259,8 +2296,8 @@ class MyMainWindow(gtk.Window):
 			self.popup_info('warning','Please calibrate the detector before checking this!')
 			self.tth_chi_space_btn.set_active(False)
 		elif self.calibrated==True:
-			self.show_chi_delta_btn.set_sensitive(False)
-			self.show_chi_delta_flag=False
+			#self.show_chi_delta_btn.set_sensitive(False)
+			self.show_chi_delta_flag=self.show_chi_delta_btn.get_active()
 			self.check_azimuthal_integrator()
 			if self.data.shape == (578,1148) and self.detector_type=="D5":
 				self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,578,1148,unit="2th_deg")
@@ -2825,19 +2862,19 @@ class MyMainWindow(gtk.Window):
 			return
 
 	def clear_notes(self):
-		if len(self.my_notes)>1:
+		if len(self.my_notes)>=1:
 			for txt in self.my_notes:
 				try:
 					txt.remove()
 				except ValueError:
 					break
-		if len(self.lines)>1:
+		if len(self.lines)>=1:
 			for line in self.lines:
 				try:
 					line.remove()
 				except ValueError:
 					break
-		if len(self.points)>1:
+		if len(self.points)>=1:
 			for p in self.points:
 				try:
 					p.remove()
