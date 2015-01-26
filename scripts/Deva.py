@@ -2288,7 +2288,7 @@ class MyMainWindow(gtk.Window):
 		else:
 			self.MAIN_XLABEL.set_text("X (pixel)")
 			self.MAIN_YLABEL.set_text("Y (pixel)")
-		self.Do_reset_image()
+		#self.Do_reset_image()
 		self.plot_data()
 	
 	def Angular_space_plot(self):
