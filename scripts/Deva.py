@@ -40,8 +40,8 @@ except:
 	from DEVA import xrayutilities
 
 __author__="Tra NGUYEN THANH"
-__version__ = "1.3.9"
-__date__="26/01/2015"
+__version__ = "1.4.1"
+__date__="28/01/2015"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -501,12 +501,20 @@ class MyMainWindow(gtk.Window):
 		########### ZOOM ACTION #################################
 		self.zoom = False #Press the Zoom button on the tool bar
 		self.zoom_press = False #Button pressed in the axe to draw a rectangle
+		self.ROI_ON = False
+		self.ROI_press = False
 		self.rect = Rectangle((0,0),0,0)
+		self.roi_rect = Rectangle((0,0),0,0)
 		self.x0 =0
 		self.y0 =0
 		self.x1 =0
 		self.y1 =0
+		self.ROI_x0 =0
+		self.ROI_y0 =0
+		self.ROI_x1 =0
+		self.ROI_y1 =0
 		self.ax.add_patch(self.rect)
+		self.ax.add_patch(self.roi_rect)
 		self.canvas.mpl_connect("motion_notify_event",self.on_motion)
 		self.canvas.mpl_connect("button_press_event",self.on_press)
 		self.canvas.mpl_connect("button_release_event",self.on_release)
@@ -571,6 +579,13 @@ class MyMainWindow(gtk.Window):
 		self.scan_slider_skip_toy   = gtk.CheckButton("Toy")
 		self.scan_slider_skip_rien  = gtk.CheckButton("Rien")
 		#skip_box.pack_start(self.scan_slider_skip_scans, False, False, 0)
+		#Plot roi
+		plot_roi_txt = gtk.Label("Plot ROI:")
+		self.tooltips.set_tip(plot_roi_txt, "Check this box to draw a ROI. Click on the image and drag the mouse to draw. Click again to ecrase the ROI")
+		plot_roi_txt.set_alignment(0,0.5)
+		self.draw_roi_btn = gtk.CheckButton("Draw a ROI")
+		self.draw_roi_btn.connect("toggled",self.Enable_draw_roi)
+		
 		skip_box.pack_start(self.scan_slider_skip_tsz, False, False, 0)
 		skip_box.pack_start(self.scan_slider_skip_eta, False, False, 0)
 		skip_box.pack_start(self.scan_slider_skip_del, False, False, 0)
@@ -588,8 +603,11 @@ class MyMainWindow(gtk.Window):
 		self.scan_slider_table.attach(self.scan_slider_scanNumber_txt, 0,1,1,2)
 		self.scan_slider_table.attach(self.scan_slider_spinButton, 1,2,1,2)
 		self.scan_slider_table.attach(self.scan_slider_imgSlider, 2,3,1,2)
-		self.scan_slider_table.attach(self.scan_slider_skip_scans,0,1,2,3)
-		self.scan_slider_table.attach(skip_box, 1,3,2,3)
+		#self.scan_slider_table.attach(self.scan_slider_skip_scans,0,1,2,3)
+		#self.scan_slider_table.attach(skip_box, 1,3,2,3)
+		self.scan_slider_table.attach(plot_roi_txt, 0,1,2,3)
+		self.scan_slider_table.attach(self.draw_roi_btn, 1,2,2,3)
+		
 		self.scan_slider_skip_tsz.set_active(True)
 		self.scan_slider_skip_rien.set_active(True)
 		
@@ -1178,6 +1196,7 @@ class MyMainWindow(gtk.Window):
 		self.cax.clear()
 		self.cax2.clear()
 		self.ax.add_patch(self.rect)
+		self.ax.add_patch(self.roi_rect)
 		self.IMG_ZOOMED = False
 		#if self.detector_type=="S70":
 			#self.img = self.ax.imshow(self.data,origin='upper',vmin=self.vmin, vmax=self.vmax, cmap=jet, interpolation='nearest',aspect='auto', extent=self.MAIN_EXTENT)
@@ -1747,6 +1766,8 @@ class MyMainWindow(gtk.Window):
 		if scan_found:	
 			self.scan_slider_spinButton.set_value(self.SPEC_ACTUAL_SCAN.nr)#This will call the update scan slider too
 			#self.update_scan_slider_now()#NOT NECESSARY
+			self.SCAN_ROI_INTEGRATION_X =[]
+			self.SCAN_ROI_INTEGRATION_Y =[]
 			return
 		else:
 			return
@@ -1755,12 +1776,43 @@ class MyMainWindow(gtk.Window):
 	def slider_plot_scan(self, widget):
 		self.plot_scan()
 	
+
+	def get_roi_data(self):
+		if self.detector_space_btn.get_active():
+			r = sorted([int(self.ROI_y0), int(self.ROI_y1)])
+			c = sorted([int(self.ROI_x0), int(self.ROI_x1)])
+			
+		elif self.tth_chi_space_btn.get_active():
+			x1 = get_index(self.tth_pyFAI, self.ROI_x0)
+			x2 = get_index(self.tth_pyFAI, self.ROI_x1)
+			y1 = get_index(self.chi_pyFAI, self.ROI_y0)
+			y2 = get_index(self.chi_pyFAI, self.ROI_y1)
+			r  = sorted([y1,y2])
+			c  = sorted([x1,x2])
+		elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active():
+			x1 = get_index(self.QGridder.xaxis, self.ROI_x0)
+			x2 = get_index(self.QGridder.xaxis, self.ROI_x1)
+			y1 = get_index(self.QGridder.yaxis, self.ROI_y0)
+			y2 = get_index(self.QGridder.yaxis, self.ROI_y1)
+			r  = sorted([y1,y2])
+			c  = sorted([x1,x2])
+		return self.data[r[0]:r[1],c[0]:c[1]].sum()
+
+	def plot_roi(self):
+		self.profiles_ax1.cla()
+		self.profiles_ax1.plot(self.SCAN_ROI_INTEGRATION_X, self.SCAN_ROI_INTEGRATION_Y, "r-o", lw=2)
+		self.profiles_ax1.set_xlabel(self.SPEC_SCAN_MOTOR_NAME, size=14)
+		self.profiles_ax1.set_ylabel("ROI integration", size=14)
+		self.profiles_refresh()
+		self.canvas.draw()
+		
 	def plot_scan(self):
 		#try:
 		if len(self.SPEC_ACTUAL_SCAN_DATA)>0:
 			img_num = self.scan_slider_imgSlider.get_value()
 			img_num = int(img_num)
 			#print "Image number: ",img_num
+				
 			img_index = N.where(self.SPEC_ACTUAL_SCAN_IMG == img_num)
 			img_index = img_index[0][0]
 			self.data = self.SPEC_ACTUAL_SCAN_DATA[img_index]
@@ -1773,6 +1825,7 @@ class MyMainWindow(gtk.Window):
 			this_title = self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]
 			scan_motor = self.SPEC_SCAN_MOTOR_NAME
 			this_motor_value = self.SPEC_SCAN_MOTOR_DATA[img_index]
+			
 			this_title = this_title +" - %s = %s"%(scan_motor, this_motor_value)
 			self.MAIN_TITLE.set_text(this_title)
 			
@@ -1791,16 +1844,19 @@ class MyMainWindow(gtk.Window):
 				self.Reciprocal_space_plot(space="KL")
 			
 			#print "Data shape: ",self.data.shape
-			
+			if self.ROI_ON and self.ROI_DRAWN:
+				self.SCAN_ROI_INTEGRATION_X.append(this_motor_value)
+				roi_data = self.get_roi_data()
+				self.SCAN_ROI_INTEGRATION_Y.append(roi_data)
+				self.plot_roi()
 			self.scale_plot()
-			#if self.IMG_ZOOMED == True:
-				#self.img.set_extent(self.ZOOM_EXTENT)
-			#else:
-				#self.img.set_extent(self.MAIN_EXTENT)
+			if img_num == self.SPEC_ACTUAL_SCAN_IMG.min() or img_num == self.SPEC_ACTUAL_SCAN_IMG.max():
+				self.SCAN_ROI_INTEGRATION_X = []
+				self.SCAN_ROI_INTEGRATION_Y = []
+			
 			self.img.set_extent(self.MAIN_EXTENT)
 			self.slider_update()
-			#self.canvas.draw()
-			
+						
 			self.SELECTED_IMG_NUM = img_num
 			if isfile(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index])):
 				self.fabioIMG = fabio.open(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]))
@@ -2046,6 +2102,7 @@ class MyMainWindow(gtk.Window):
 			self.canvas.window.set_cursor(None)
 			self.cursor.visible = True
 
+		
 	def zoom_image(self):
 		tmp_x = [self.x0, self.x1]
 		tmp_y = [self.y0, self.y1]
@@ -2074,7 +2131,7 @@ class MyMainWindow(gtk.Window):
 		self.IMG_ZOOMED = True
 		self.ZOOM_EXTENT = (extent_x0, extent_x1, extent_y0, extent_y1)
 		self.canvas.draw()
-
+		
 	def reset_scale(self,widget):
 		if self.linear_scale_btn.get_active():
 			self.vmin = 0
@@ -2744,9 +2801,58 @@ class MyMainWindow(gtk.Window):
 		self.rect.set_facecolor("white")
 		self.rect.set_alpha(0.3)
 		self.rect.set_edgecolor("black")
-		#self.rect.set_visible(self.zoom_press)
 		self.rect.set_visible(self.zoom_press)
 		self.canvas.draw()
+		
+	def Enable_draw_roi(self,w):
+		if self.draw_roi_btn.get_active():
+			self.ROI_ON = True
+		else:
+			self.ROI_ON = False
+			self.ROI_DRAWN = False
+			
+	def draw_roi(self):
+		self.roi_rect.set_width(self.ROI_x1 - self.ROI_x0)
+		self.roi_rect.set_height(self.ROI_y1 - self.ROI_y0)
+		self.roi_rect.set_xy((self.ROI_x0, self.ROI_y0))
+		self.roi_rect.set_linestyle('solid')
+		self.roi_rect.set_linewidth(2)
+		self.roi_rect.set_facecolor("none")
+		#self.rect.set_alpha(0.3)
+		self.roi_rect.set_edgecolor("red")
+		self.roi_rect.set_visible(True)
+		
+		self.canvas.draw()
+
+
+	def clear_notes(self):
+		self.roi_rect.set_visible(False)
+		if len(self.my_notes)>=1:
+			for txt in self.my_notes:
+				try:
+					txt.remove()
+				except ValueError:
+					break
+		if len(self.lines)>=1:
+			for line in self.lines:
+				try:
+					line.remove()
+				except ValueError:
+					break
+		if len(self.points)>=1:
+			for p in self.points:
+				try:
+					p.remove()
+				except ValueError:
+					break
+
+		self.canvas.draw()
+		self.my_notes = []
+		self.lines=[]
+		self.points=[]
+		self.arb_lines_X=[]
+		self.arb_lines_Y=[]
+		self.arb_line_points = 0
 
 	def peak_max_old(self, event):
 		x = int(event.xdata)
@@ -2817,6 +2923,15 @@ class MyMainWindow(gtk.Window):
 			self.zoom_press = True
 			self.x0 = event.xdata
 			self.y0 = event.ydata
+		#******** ROI plot *********************************
+		elif (self.ROI_ON) and (event.inaxes == self.ax) and (event.button==1):
+			self.ROI_press = True
+			self.roi_rect.set_visible(False)
+			self.ROI_x0 = event.xdata
+			self.ROI_y0 = event.ydata
+			self.SCAN_ROI_INTEGRATION_X = []
+			self.SCAN_ROI_INTEGRATION_Y = []
+			
 		#******** Plot cross profiles *********************************
 		elif (event.inaxes == self.ax) and (event.button==3) and self.plotXYprofiles_btn.get_active():
 			x = event.xdata
@@ -2861,34 +2976,6 @@ class MyMainWindow(gtk.Window):
 		else:
 			return
 
-	def clear_notes(self):
-		if len(self.my_notes)>=1:
-			for txt in self.my_notes:
-				try:
-					txt.remove()
-				except ValueError:
-					break
-		if len(self.lines)>=1:
-			for line in self.lines:
-				try:
-					line.remove()
-				except ValueError:
-					break
-		if len(self.points)>=1:
-			for p in self.points:
-				try:
-					p.remove()
-				except ValueError:
-					break
-
-		self.canvas.draw()
-		self.my_notes = []
-		self.lines=[]
-		self.points=[]
-		self.arb_lines_X=[]
-		self.arb_lines_Y=[]
-		self.arb_line_points = 0
-
 	def on_motion(self,event):
 		if event.inaxes == self.ax:
 			self.status_update(event)
@@ -2897,6 +2984,11 @@ class MyMainWindow(gtk.Window):
 				self.x1 = event.xdata
 				self.y1 = event.ydata
 				self.draw_rect()
+			elif self.ROI_press:
+				self.mouse_moved = True
+				self.ROI_x1 = event.xdata
+				self.ROI_y1 = event.ydata
+				self.draw_roi()
 		else:
 			return
 
@@ -2911,6 +3003,15 @@ class MyMainWindow(gtk.Window):
 			if self.mouse_moved==True:
 				self.zoom_image()
 				self.mouse_moved = False
+				
+		if (self.ROI_ON) and (event.inaxes == self.ax):
+			#print 'release'
+
+			self.ROI_press = False
+			self.ROI_x1 = event.xdata
+			self.ROI_y1 = event.ydata
+			self.draw_roi()
+			self.ROI_DRAWN = True
 
 
 	def check_input_data(self):
