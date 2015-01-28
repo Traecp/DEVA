@@ -1189,7 +1189,16 @@ class MyMainWindow(gtk.Window):
 
 ######################################## Definitions ########################################################################
 	def pro_format_coord(self,x,y):
-		return 'x=%.4f, y=%.1f'%(x,y)
+		if abs(x)>10000:
+			fmtx = '%.2e'%x
+		else:
+			fmtx = '%.2f'%x
+		if abs(y)>10000:
+			fmty = '%.2e'%y
+		else:
+			fmty = '%.2f'%y
+		form = 'x=%s, y=%s'%(str(fmtx),str(fmty))
+		return form
 
 	def init_image(self):
 		self.ax.clear()
@@ -1800,6 +1809,8 @@ class MyMainWindow(gtk.Window):
 
 	def plot_roi(self):
 		self.profiles_ax1.cla()
+		#self.profiles_ax1.format_coord = self.pro_format_coord
+		#self.profiles_ax2.format_coord = self.pro_format_coord
 		self.profiles_ax1.plot(self.SCAN_ROI_INTEGRATION_X, self.SCAN_ROI_INTEGRATION_Y, "r-o", lw=2)
 		self.profiles_ax1.set_xlabel(self.SPEC_SCAN_MOTOR_NAME, size=14)
 		self.profiles_ax1.set_ylabel("ROI integration", size=14)
@@ -2713,8 +2724,8 @@ class MyMainWindow(gtk.Window):
 		self.coor_Y_export = coor_Y
 		self.profiles_ax1.cla()
 		self.profiles_ax2.cla()
-		self.profiles_ax1.format_coord = self.pro_format_coord
-		self.profiles_ax2.format_coord = self.pro_format_coord
+		#self.profiles_ax1.format_coord = self.pro_format_coord
+		#self.profiles_ax2.format_coord = self.pro_format_coord
 		# The CHI or Vertical (Y) profile (ax1):
 
 		self.profiles_ax1.plot(coor_Y, self.profiles_data_Y, color='blue', lw=1.5)
@@ -2764,13 +2775,19 @@ class MyMainWindow(gtk.Window):
 	def profiles_refresh(self):
 		""" """
 		if self.profiles_log_btn.get_active():
-			self.profiles_ax1.set_yscale('log')
-			self.profiles_ax2.set_yscale('log')
+			if len(self.profiles_ax1.get_lines())>0:
+				self.profiles_ax1.set_yscale('log')
+			elif len(self.profiles_ax2.get_lines())>0:
+				self.profiles_ax2.set_yscale('log')
+			else:
+				self.profiles_log_btn.set_active(False)
+				self.popup_info("error","The graphs have no data!")
 
 		else:
 			self.profiles_ax1.set_yscale('linear')
 			self.profiles_ax2.set_yscale('linear')
-
+		self.profiles_ax1.format_coord = self.pro_format_coord
+		self.profiles_ax2.format_coord = self.pro_format_coord
 		self.profiles_canvas.draw()
 		#return
 
@@ -2781,17 +2798,25 @@ class MyMainWindow(gtk.Window):
 		""" Export X,Y profiles data in the same folder as the EDF image """
 		proX_fname = self.edf.split(".")[0]+"_X_profile.dat"
 		proY_fname = self.edf.split(".")[0]+"_Y_profile.dat"
-		proX_export= N.vstack([self.coor_X_export, self.profiles_data_X])
-		proX_export=proX_export.T
-		proY_export= N.vstack([self.coor_Y_export, self.profiles_data_Y])
-		proY_export=proY_export.T
-		try:
+		data_x_export = False
+		data_y_export = False
+		if len(self.profiles_ax2.get_lines())>0:
+			proX_export = self.profiles_ax2.get_lines()[0].get_xydata()
 			N.savetxt(proX_fname, proX_export)
+			data_x_export = True
+		if len(self.profiles_ax1.get_lines())>0:
+			proY_export = self.profiles_ax1.get_lines()[0].get_xydata()
 			N.savetxt(proY_fname, proY_export)
-			self.popup_info('info','Data are successfully exported in %s and %s!'%(proX_fname, proY_fname))
-
-		except:
-			self.popup_info('error','ERROR! Data not exported!')
+			data_y_export = True
+		MSSG = "Data exported: \n\n"
+		if data_x_export:
+			MSSG+=proX_fname+"\n\n"
+		if data_y_export:
+			MSSG+=proY_fname+"\n\n"
+		if data_x_export or data_y_export:
+			self.popup_info('info',MSSG)
+		else:
+			self.popup_info('error','ERROR! No data exported!')
 
 	def draw_rect(self):
 		self.rect.set_width(self.x1 - self.x0)
