@@ -11,6 +11,7 @@ INSTALLATION on LINUX and MAC OSX
 	- Numpy >= 1.8
 	- Scipy
 	- Matplotlib >= 1.4
+	- mayavi
 	- fabio
 	- Cython
 	- gcc (C compiler)
@@ -25,9 +26,18 @@ INSTALLATION on WINDOWS
 ==========================
 + Requirements (all of these packages must be in 32 bits for python 2.7):
 
-	- pythonxy (https://code.google.com/p/pythonxy/)
+	- pythonxy (https://code.google.com/p/pythonxy/) -- carefully check if mayavi is installed with. If not, you have to install mayavi.
 	
-	- fabio (https://pypi.python.org/pypi/fabio), Cython (https://pypi.python.org/pypi/Cython/), lmfit (https://pypi.python.org/pypi/lmfit/), matplotlib (you have to reinstall matplotlib unless an error of backend-gdk will rise) http://matplotlib.org/downloads.html, PyGTK all in one win32 py27 (http://ftp.gnome.org/pub/GNOME/binaries/win32/pygtk/2.24/pygtk-all-in-one-2.24.2.win32-py2.7.msi)
+	- fabio (https://pypi.python.org/pypi/fabio), 
+	
+	- Cython (https://pypi.python.org/pypi/Cython/), 
+	
+	- lmfit (https://pypi.python.org/pypi/lmfit/), 
+	
+	- matplotlib (you have to reinstall matplotlib unless an error of backend-gdk will rise) http://matplotlib.org/downloads.html, 
+	
+	- PyGTK all in one win32 py27 (http://ftp.gnome.org/pub/GNOME/binaries/win32/pygtk/2.24/pygtk-all-in-one-2.24.2.win32-py2.7.msi)
+	
 	
 	*Optional, but strongly recommended:
 	

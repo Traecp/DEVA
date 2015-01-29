@@ -1,6 +1,9 @@
 DEVA
 ==========================
-D2AM EDF image Visualisation and Analysis - A software for 2D data analysis
+D2AM EDF image Visualisation and Analysis - A software for 2D data analysis. This software deals with special geometry of XPAD area detectors.
+If you find any bug, please inform me at: thanhtra0104 @ gmail.com
+
+Thank you.
 
 INSTALLATION on LINUX and MAC OSX
 ==========================

@@ -20,7 +20,7 @@ import re
 import copy
 import shlex
 
-from .helper import xu_open
+from . import xu_open
 
 re_label = re.compile(r'^\s*_')
 re_default = re.compile(r'^\s*_('

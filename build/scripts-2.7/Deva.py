@@ -30,6 +30,7 @@ from matplotlib.widgets import Cursor
 from matplotlib.patches import Rectangle
 from matplotlib.ticker import MaxNLocator
 #calculation of two theta,chi
+from mayavi import mlab
 import fabio
 try:
 	import pyFAI
@@ -42,8 +43,8 @@ except:
 
 __author__="Tra NGUYEN THANH"
 __email__ = "thanhtra0104@gmail.com"
-__version__ = "2.0.0"
-__date__="28/01/2015"
+__version__ = "2.0.1"
+__date__="29/01/2015"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -722,6 +723,8 @@ class MyMainWindow(gtk.Window):
 		plot_roi_txt.set_alignment(0,0.5)
 		self.draw_roi_btn = gtk.CheckButton("Draw a ROI")
 		self.draw_roi_btn.connect("toggled",self.Enable_draw_roi)
+		self.plot_3D_scan_btn = gtk.Button("Plot 3D HKL of this scan")
+		self.plot_3D_scan_btn.connect("clicked",self.plot_3D_scan)
 		
 		skip_box.pack_start(self.scan_slider_skip_tsz, False, False, 0)
 		skip_box.pack_start(self.scan_slider_skip_eta, False, False, 0)
@@ -744,6 +747,7 @@ class MyMainWindow(gtk.Window):
 		#self.scan_slider_table.attach(skip_box, 1,3,2,3)
 		self.scan_slider_table.attach(plot_roi_txt, 0,1,2,3)
 		self.scan_slider_table.attach(self.draw_roi_btn, 1,2,2,3)
+		self.scan_slider_table.attach(self.plot_3D_scan_btn, 2,3,2,3)
 		
 		self.scan_slider_skip_tsz.set_active(True)
 		self.scan_slider_skip_rien.set_active(True)
@@ -1446,19 +1450,19 @@ class MyMainWindow(gtk.Window):
 		distance = self.geometry_distance.get_text()
 		energy   = self.geometry_energy.get_text()
 		direct_beam = self.geometry_direct_beam.get_text()
-		distance = float(distance)
-		energy   = float(energy)
+		self.distance = float(distance)
+		self.energy   = float(energy)
 		direct_beam = direct_beam.split(",")
-		direct_beam = [float(direct_beam[0]),float(direct_beam[1])]
+		self.direct_beam = [float(direct_beam[0]),float(direct_beam[1])]
 		from scipy.constants import h,c,e
-		poni1 = direct_beam[1]*_PIXEL_SIZE
-		poni2 = direct_beam[0]*_PIXEL_SIZE
-		wavelength = h*c/e/energy
+		poni1 = self.direct_beam[1]*_PIXEL_SIZE
+		poni2 = self.direct_beam[0]*_PIXEL_SIZE
+		wavelength = h*c/e/self.energy
 		
 		qconv = xrayutilities.experiment.QConversion(['y-','x-','z+'],['z+','y-'],[1,0,0])
 		
 		if self.UB_MATRIX_LOAD:
-			self.experiment = xrayutilities.HXRD([1,0,0],[0,0,1], en=energy, qconv=qconv)
+			self.experiment = xrayutilities.HXRD([1,0,0],[0,0,1], en=self.energy, qconv=qconv)
 		else:
 			substrate = self.geometry_substrate.get_active_text()
 			if substrate == "-- other":
@@ -1472,15 +1476,15 @@ class MyMainWindow(gtk.Window):
 				self.in_plane = N.asarray([int(i) for i in in_plane])
 				out_of_plane = out_of_plane.split()
 				self.out_of_plane = N.asarray([int(i) for i in out_of_plane])
-				self.has_orientation_matrix = True
-				self.experiment = xrayutilities.HXRD(self.substrate.Q(self.in_plane),self.substrate.Q(self.out_of_plane), en=energy, qconv=qconv)
+				#self.has_orientation_matrix = True
+				self.experiment = xrayutilities.HXRD(self.substrate.Q(self.in_plane),self.substrate.Q(self.out_of_plane), en=self.energy, qconv=qconv)
 			else:
-				self.has_orientation_matrix = False
-				self.experiment = xrayutilities.HXRD(self.substrate.Q(1,0,0),self.substrate.Q(0,0,1), en=energy, qconv=qconv)
+				#self.has_orientation_matrix = False
+				self.experiment = xrayutilities.HXRD(self.substrate.Q(1,0,0),self.substrate.Q(0,0,1), en=self.energy, qconv=qconv)
 			
 		
 			
-		self.azimuthalIntegration = pyFAI.azimuthalIntegrator.AzimuthalIntegrator(dist=distance,
+		self.azimuthalIntegration = pyFAI.azimuthalIntegrator.AzimuthalIntegrator(dist=self.distance,
 																					poni1=poni1,
 																					poni2=poni2,
 																					rot1=None,
@@ -1493,7 +1497,7 @@ class MyMainWindow(gtk.Window):
 		
 		self.calibrated=True
 		self.calibrated_quantitative = False
-		MSSG = "Your parameters have been taken into account.\nEnergy = %s eV\nDistance = %s m\nDirect beam position: %s,%s\n"%(str(energy),str(distance),str(direct_beam[0]),str(direct_beam[1]))
+		MSSG = "Your parameters have been taken into account.\nEnergy = %s eV\nDistance = %s m\nDirect beam position: %s,%s\n"%(str(self.energy),str(self.distance),str(self.direct_beam[0]),str(self.direct_beam[1]))
 		if self.UB_MATRIX_LOAD:
 			MSSG+= "\nYou have imported a UB matrix. If you donot want to use this UB matrix anymore, click the browse button again.\n\nYour actual UB matrix is:\n%s"%str(self.UB_MATRIX)
 		else:
@@ -1618,7 +1622,7 @@ class MyMainWindow(gtk.Window):
 			#pass
 		
 	def on_changed_edf(self,widget,row,col):
-
+		""" Change EDF by double clicking on the file name """
 		self.clear_notes()
 		self.init_image()
 		model = widget.get_model()
@@ -1957,7 +1961,7 @@ class MyMainWindow(gtk.Window):
 		self.canvas.draw()
 		
 	def plot_scan(self):
-		#try:
+		""" Plot when the scan slider changes """
 		if len(self.SPEC_ACTUAL_SCAN_DATA)>0:
 			img_num = self.scan_slider_imgSlider.get_value()
 			img_num = int(img_num)
@@ -2012,11 +2016,84 @@ class MyMainWindow(gtk.Window):
 				self.fabioIMG = fabio.open(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]))
 			else:
 				pass
+	def plot_3D_scan(self,w):
+		""" popup a mayavi window to visualize the 3D data """
+		DATA = []
+		th = []
+		chi= []
+		phi= []
+		nu = []
+		tth= []
+		cch1 = self.direct_beam[1]
+		cch2 = self.direct_beam[0]
 		
-		#except:
-			#pass
-		#return
+		if self.manip == "kappapsic":
+			th_motor = 'eta'
+			tth_motor= 'del'
+		elif self.manip == 'fourc':
+			th_motor = 'th'
+			tth_motor= 'tth'
+		
+		for i in range(len(self.SPEC_ACTUAL_SCAN_DATA)):
+			motor=get_motors(self.SPEC_ACTUAL_SCAN_HEADER[i])			
+			data = self.SPEC_ACTUAL_SCAN_DATA[i]
+			if data.shape == (960,560) or data.shape == (120,560):
+				data = self.correct_geometry(data)
+			if self.detector_type == "S70":
+				data = N.flipud(data)
+			
+			th.append(motor[th_motor])
+			chi.append(90-motor['chi'])
+			phi.append(motor['phi'])
+			nu.append(motor['nu'])
+			tth.append(motor[tth_motor])
+			DATA.append(data)
+			Nch1 = data.shape[0]
+			Nch2 = data.shape[1]
+
+		DATA = N.asarray(DATA)
+		self.experiment.Ang2Q.init_area('z+','y-', cch1=cch1, cch2=cch2, Nch1=Nch1,Nch2=Nch2, pwidth1=_PIXEL_SIZE,pwidth2=_PIXEL_SIZE, distance=self.distance)
+		if self.UB_MATRIX_LOAD:
+			h,k,l=self.experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area', U=self.UB_MATRIX)
+		else:
+			UB_Matrix = self.get_UB_from_spec(self.SPEC_ACTUAL_SCAN)
+			h,k,l=self.experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area', U=UB_Matrix)
+		nx = 100
+		ny = 100
+		nz = 100
+		gridder = xrayutilities.Gridder3D(nx,ny,nz)
+		gridder(h,k,l,DATA)
+		h,k,l = N.mgrid[gridder.xaxis.min():gridder.xaxis.max():1j*nx,
+							gridder.yaxis.min():gridder.yaxis.max():1j*ny,
+							gridder.zaxis.min():gridder.zaxis.max():1j*nz]
+		DATA  = gridder.data
+		maxint= N.log10(DATA.max())
+		DATA  = xrayutilities.maplog(DATA,maxint*0.90,0)
+		mlab.figure()
+		mlab.contour3d(h,k,l,DATA,contours=50,opacity=0.5)
+		mlab.outline()
+		mlab.axes(nb_labels=5, xlabel='H', ylabel='K', zlabel='L')
+		mlab.colorbar(title="log(intensity)", orientation="vertical")
+		mlab.show()
+		mlab.close(all=True)
+		gc.collect()
 	
+	def get_UB_from_spec(self,actual_scan):
+		header = actual_scan.header
+		ub     = []
+		for h in header:
+			if h.startswith("#G3"):
+				h = h.split()
+				h = h[1:]
+				for i in range(len(h)):
+					ub.append(float(h[i]))
+				ub = N.asarray(ub)
+				ub = ub.reshape((3,3))
+				return ub
+			else:
+				continue
+			
+				
 	def change_scale(self,button, data):
 		if button.get_active():
 			button.set_label("Linear scale")
@@ -2473,9 +2550,9 @@ class MyMainWindow(gtk.Window):
 	def save_adjust(self,widget):
 		""" Save the current EDF image, the file name will be name+adjusted """
 		self.fabioIMG.data = self.data
-		name = self.edf.split(".")[0]+"_adjusted"
-		ext  = self.edf.split(".")[1]
-		filename = name+"."+ext
+		basename = os.path.basename(self.edf)
+		name = basename.split(".")[0]+"_corrected.edf"
+		filename = join(os.path.dirname(self.edf), name)
 		self.fabioIMG.write(filename)
 		self.popup_info("info", "Image %s is successfully saved !"%filename)
 

@@ -2473,9 +2473,9 @@ class MyMainWindow(gtk.Window):
 	def save_adjust(self,widget):
 		""" Save the current EDF image, the file name will be name+adjusted """
 		self.fabioIMG.data = self.data
-		name = self.edf.split(".")[0]+"_adjusted"
-		ext  = self.edf.split(".")[1]
-		filename = name+"."+ext
+		basename = os.path.basename(self.edf)
+		name = basename.split(".")[0]+"_corrected.edf"
+		filename = join(os.path.dirname(self.edf), name)
 		self.fabioIMG.write(filename)
 		self.popup_info("info", "Image %s is successfully saved !"%filename)
 
