@@ -11,7 +11,8 @@ from os.path import isfile,join
 import math
 import numpy as N
 from numpy import unravel_index
-from scipy import ndimage
+from scipy import ndimage, stats
+from scipy.fftpack import fft, fftfreq, fftshift
 from lmfit import Parameters, minimize
 from DEVA.xpad import libXpad as libX
 from DEVA.utilities import Combination_edf_by_translationXZ as EDF_XZ_combination
@@ -40,7 +41,8 @@ except:
 	from DEVA import xrayutilities
 
 __author__="Tra NGUYEN THANH"
-__version__ = "1.4.1"
+__email__ = "thanhtra0104@gmail.com"
+__version__ = "2.0.0"
 __date__="28/01/2015"
 
 #mpl.rcParams['font.size'] = 18.0
@@ -59,11 +61,31 @@ mpl.rcParams['savefig.dpi'] = 300
 _PIXEL_SIZE = 130e-6 #m
 _SPEC_IMG_COL = "img" #column containing image number in spec file
 
-def flat_data(data,dynlow, dynhigh):
+def Fourier(X,vect):  
+	Nb  = vect.size   #number of data points
+	T  = X[1] - X[0] #sample spacing
+	TF = fft(vect)
+	
+	xf = fftfreq(Nb,T)
+	xf = fftshift(xf)
+	yplot = fftshift(TF)
+	yplot = N.abs(yplot)
+	yplot = yplot[Nb/2:]
+	xf    = xf[Nb/2:]
+	return xf, yplot/yplot.max()
+
+def flat_data(data,dynlow, dynhigh, log):
 	""" Returns data where maximum superior than 10^dynhigh will be replaced by 10^dynhigh, inferior than 10^dynlow will be replaced by 10^dynlow"""
-	mi = 10**dynlow
-	ma = 10**dynhigh
-	return N.minimum(N.maximum(data,mi),ma)
+	if log:
+		mi = 10**dynlow
+		ma = 10**dynhigh
+		data=N.minimum(N.maximum(data,mi),ma)
+		data=N.log10(data)
+	else:
+		mi = dynlow
+		ma = dynhigh
+		data=N.minimum(N.maximum(data,mi),ma)
+	return data
 
 def psdVoigt(parameters,x):
 	"""Define pseudovoigt function"""
@@ -232,7 +254,122 @@ def get_img_list(edf_list):
 			out.append(None)
 	out = N.asarray(out)
 	return N.asarray(out)
+
+class PopUpFringes(object):
+	def __init__(self, xdata, xlabel, ylabel, title):
+		self.popupwin=gtk.Window()
+		self.popupwin.set_size_request(600,550)
+		self.popupwin.set_position(gtk.WIN_POS_CENTER)
+		self.popupwin.set_border_width(10)
+		self.xdata = xdata
+		vbox = gtk.VBox()
+		self.fig=Figure(dpi=100)
+		self.ax  = self.fig.add_subplot(111)
+		self.canvas  = FigureCanvas(self.fig)
+		self.main_figure_navBar = NavigationToolbar(self.canvas, self)
+		self.cursor = Cursor(self.ax, color='k', linewidth=1, useblit=True)
+		self.ax.set_xlabel(xlabel, fontsize = 18)
+		self.ax.set_ylabel(ylabel, fontsize = 18)
+		self.ax.set_title(title, fontsize = 18)
+		
+		xi = N.arange(len(self.xdata))		
+		slope, intercept, r_value, p_value, std_err = stats.linregress(self.xdata,xi)
+		fitline = slope*self.xdata+intercept
+		
+		self.ax.plot(self.xdata, fitline, 'r-',self.xdata,xi, 'bo')
+		self.ax.axis([self.xdata.min(),self.xdata.max(),xi.min()-1, xi.max()+1])
+		
+		self.ax.text(0.3, 0.9,'Slope = %.4f +- %.4f' % (slope, std_err),
+								horizontalalignment='center',
+								verticalalignment='center',
+								transform = self.ax.transAxes,
+								color='red')
+		vbox.pack_start(self.main_figure_navBar, False, False, 0)
+		vbox.pack_start(self.canvas, True, True, 2)
+		self.popupwin.add(vbox)
+		self.popupwin.connect("destroy", self.dest)
+		self.popupwin.show_all()
 	
+	def dest(self,widget):
+		self.popupwin.destroy()
+	
+class PopUpImage(object):
+	def __init__(self, xdata, ydata, xlabel, ylabel, title):
+		self.popupwin=gtk.Window()
+		self.popupwin.set_size_request(600,550)
+		self.popupwin.set_position(gtk.WIN_POS_CENTER)
+		self.popupwin.set_border_width(10)
+		self.xdata = xdata
+		self.ydata = ydata
+		vbox = gtk.VBox()
+		self.fig=Figure(dpi=100)
+		self.ax  = self.fig.add_subplot(111)
+		self.canvas  = FigureCanvas(self.fig)
+		self.main_figure_navBar = NavigationToolbar(self.canvas, self)
+		self.cursor = Cursor(self.ax, color='k', linewidth=1, useblit=True)
+		self.canvas.mpl_connect("button_press_event",self.on_press)
+		self.ax.set_xlabel(xlabel, fontsize = 18)
+		self.ax.set_ylabel(ylabel, fontsize = 18)
+		self.ax.set_title(title, fontsize = 18)
+		self.ax.plot(self.xdata, self.ydata, 'b-', lw=2)
+		
+		self.textes = []
+		self.plots  = []
+		vbox.pack_start(self.main_figure_navBar, False, False, 0)
+		vbox.pack_start(self.canvas, True, True, 2)
+		self.popupwin.add(vbox)
+		self.popupwin.connect("destroy", self.dest)
+		self.popupwin.show_all()
+	
+	def dest(self,widget):
+		self.popupwin.destroy()
+	
+	def on_press(self, event):
+		if event.inaxes == self.ax and event.button==3:
+			self.clear_notes()
+			xc = event.xdata
+			#***** Find the closest x value *****
+			residuel = self.xdata - xc
+			residuel = N.abs(residuel)
+			j = N.argmin(residuel)
+			#y = self.ydata[i-1:i+1]
+			#yc= y.max()
+			#j = N.where(self.ydata == yc)
+			#j = j[0][0]
+			xc= self.xdata[j]
+			x_fit = self.xdata[j-3:j+3]
+			y_fit = self.ydata[j-3:j+3]
+			fitted_param, fitted_data = fit(x_fit, y_fit, xc, True)
+			x_fit = N.linspace(x_fit.min(), x_fit.max(), 200)
+			y_fit = psdVoigt(fitted_param, x_fit)
+			period = fitted_param['xc'].value
+			std_err= fitted_param['xc'].stderr
+			
+			p = self.ax.plot(x_fit, y_fit,'r-')
+			p2 = self.ax.axvline(period,color='green',lw=2)
+			
+			txt=self.ax.text(0.05, 0.9, 'Period = %.4f +- %.4f (nm)'%(period, std_err), transform = self.ax.transAxes, color='red')
+			self.textes.append(txt)
+			self.plots.append(p[0])
+			self.plots.append(p2)
+		elif event.inaxes == self.ax and event.button==2:
+			dif = N.diff(self.ydata)
+			dif = dif/dif.max()
+			p3=self.ax.plot(dif,'r-')
+			self.plots.append(p3[0])
+		self.canvas.draw()
+	
+	def clear_notes(self):
+		if len(self.textes)>0:
+			for t in self.textes:
+				t.remove()
+		if len(self.plots)>0:
+			for p in self.plots:
+				p.remove()
+		self.textes = []
+		self.plots  = []
+
+
 class MyMainWindow(gtk.Window):
 
 	def __init__(self):
@@ -714,6 +851,7 @@ class MyMainWindow(gtk.Window):
 		self.profiles_option_box.pack_start(self.integration_width,False,False,0)
 		### Figure of profiles plot
 		self.fig_profiles = Figure()
+		self.profiles_fringes = []
 		self.profiles_ax2 = self.fig_profiles.add_subplot(211)
 		self.profiles_ax2.set_xlabel("X profile", size=14)
 		self.profiles_ax1 = self.fig_profiles.add_subplot(212)
@@ -722,6 +860,7 @@ class MyMainWindow(gtk.Window):
 		self.fig_profiles.subplots_adjust(bottom=0.1, top=0.95, hspace=0.30)
 		self.profiles_canvas = FigureCanvas(self.fig_profiles)
 		self.profiles_canvas.set_size_request(450,50)
+		self.profiles_canvas.mpl_connect("button_press_event",self.profile_press)
 		self.profiles_navBar = NavigationToolbar(self.profiles_canvas, self)
 		self.cursor_pro1 = Cursor(self.profiles_ax1, color='k', linewidth=1, useblit=True)
 		self.cursor_pro2 = Cursor(self.profiles_ax2, color='k', linewidth=1, useblit=True)
@@ -1994,6 +2133,7 @@ class MyMainWindow(gtk.Window):
 			#self.pole_canvas.draw()
     
 	def detector_disposition(self,widget):
+		""" Set detector vertically or horizontally """
 		#data = self.data.copy()
 		if self.detector_disposition_horizontal.get_active():
 			self.horizontal_detector = True
@@ -2229,6 +2369,7 @@ class MyMainWindow(gtk.Window):
 		#time.sleep(3)  # Useless other than to delay finish of thread.
 	
 	def scan_EDF_files(self,parent, this_dir):
+		""" Get EDF files from this_directory """
 		#print "Scanning this directory: ",this_dir
 		main_store= [i for i in listdir(this_dir) if isfile(join(this_dir,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
 		main_store = sorted(main_store)
@@ -2279,9 +2420,9 @@ class MyMainWindow(gtk.Window):
 			for k in self.store.keys():
 				self.store_img[k] = get_img_list(self.store[k])
 			#print "### ",self.store.keys()
-			if self.SPEC_DATA:
-				self.SPEC_DATA.Update()
-				self.update_spec_data()
+			#if self.SPEC_DATA:
+				#self.SPEC_DATA.Update()
+				#self.update_spec_data()
 
 	def folder_update(self,widget):
 		folder = self.current_folder
@@ -2391,9 +2532,7 @@ class MyMainWindow(gtk.Window):
 				self.tth_chi_space_btn.set_active(False)
 			
 			self.MAIN_EXTENT = (self.tth_pyFAI.min(), self.tth_pyFAI.max(), self.chi_pyFAI.min(), self.chi_pyFAI.max())
-			#if self.detector_type == "S70":
-				#self.MAIN_EXTENT = (self.tth_pyFAI.min(), self.tth_pyFAI.max(), self.chi_pyFAI.max(), self.chi_pyFAI.min())
-			#print self.MAIN_EXTENT
+			
 		
 	
 	def Reciprocal_space_plot(self,space="HK"):
@@ -2777,7 +2916,7 @@ class MyMainWindow(gtk.Window):
 		if self.profiles_log_btn.get_active():
 			if len(self.profiles_ax1.get_lines())>0:
 				self.profiles_ax1.set_yscale('log')
-			elif len(self.profiles_ax2.get_lines())>0:
+			if len(self.profiles_ax2.get_lines())>0:
 				self.profiles_ax2.set_yscale('log')
 			else:
 				self.profiles_log_btn.set_active(False)
@@ -2817,6 +2956,50 @@ class MyMainWindow(gtk.Window):
 			self.popup_info('info',MSSG)
 		else:
 			self.popup_info('error','ERROR! No data exported!')
+
+	def profile_press(self, event):
+		""" Calculate thickness fringes """
+		if event.inaxes == self.profiles_ax1:
+			draw_fringes = True
+			ax = self.profiles_ax1
+			ax_data = ax.get_lines()[0].get_xydata()
+			X_data = ax_data[:,0]
+			Y_data = ax_data[:,1]
+			xlabel = 'Y'
+			title = "Linear regression of Y fringes"
+			title_FFT = "Fast Fourier Transform of Y profile"
+			xlabel_FFT= "Frequency"
+		elif event.inaxes == self.profiles_ax2:
+			draw_fringes = True
+			ax = self.profiles_ax2
+			ax_data = ax.get_lines()[0].get_xydata()
+			X_data = ax_data[:,0]
+			Y_data = ax_data[:,1]
+			xlabel = 'X'
+			title = "Linear regression of X fringes"
+			title_FFT = "Fast Fourier Transform of X profile"
+			xlabel_FFT= "Frequency"
+		else:
+			draw_fringes = False
+			
+		if draw_fringes and (event.button==1):
+			if len(self.profiles_fringes)>0:
+				self.profiles_fringes = N.asarray(self.profiles_fringes)
+				self.profiles_fringes = N.sort(self.profiles_fringes)
+				fringes_popup = PopUpFringes(self.profiles_fringes, xlabel, "Fringes order", title)
+				self.profiles_fringes=[]
+				self.clear_notes()
+		elif draw_fringes and (event.button == 3):
+			vline=ax.axvline(event.xdata, linewidth=2, color="green")
+			self.lines.append(vline)
+			self.profiles_fringes.append(event.xdata)
+		
+		elif draw_fringes and event.button == 2:
+			XF,YF = Fourier(X_data, Y_data)
+			popup_window=PopUpImage(XF, YF, xlabel_FFT, "Normalized intensity", title_FFT)
+			
+		self.profiles_canvas.draw()
+		
 
 	def draw_rect(self):
 		self.rect.set_width(self.x1 - self.x0)
