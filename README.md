@@ -5,6 +5,13 @@ If you find any bug, please inform me at: thanhtra0104 @ gmail.com
 
 Thank you.
 
+**** For those who use git: it is possible to clone the git repository of DEVA from here: https://github.com/Traecp/DEVA.git
+
+git clone https://github.com/Traecp/DEVA.git
+
+Check the proxy setup if connection failed. See wiki for problems solved.
+
+
 INSTALLATION on LINUX and MAC OSX
 ==========================
 + Requirements:
@@ -32,14 +39,13 @@ INSTALLATION on WINDOWS
 	
 	- Cython (https://pypi.python.org/pypi/Cython/), 
 	
+	- gcc (C compiler)
+	
 	- lmfit (https://pypi.python.org/pypi/lmfit/), 
 	
 	- matplotlib (you have to reinstall matplotlib unless an error of backend-gdk will rise) http://matplotlib.org/downloads.html, 
 	
 	- PyGTK all in one win32 py27 (http://ftp.gnome.org/pub/GNOME/binaries/win32/pygtk/2.24/pygtk-all-in-one-2.24.2.win32-py2.7.msi)
-	
-	
-	*Optional, but strongly recommended:
 	
 	- pyFAI (https://pypi.python.org/pypi/pyFAI)
 	

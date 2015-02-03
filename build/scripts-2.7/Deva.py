@@ -43,8 +43,8 @@ except:
 
 __author__="Tra NGUYEN THANH"
 __email__ = "thanhtra0104@gmail.com"
-__version__ = "2.0.1"
-__date__="29/01/2015"
+__version__ = "2.0.2"
+__date__="03/02/2015"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -256,6 +256,79 @@ def get_img_list(edf_list):
 	out = N.asarray(out)
 	return N.asarray(out)
 
+class Read_Spec_D1(object):
+	""" Read a scan from dataspec file, i.e. kappapsic.DATE - old format used by D1 xpad detector
+	Use: scan = Read_Spec_D1(scanid, specfile)
+	Where scanid is the scan number, specfile is the kappapsic.DATE file
+	"""
+	def __init__(self, scanid, specfile):
+		self.specfile = specfile
+		self.scanid   = scanid
+		self.header   = []
+		self.data     = {}
+		self.motor    = {}
+		self.colnames = []
+		self.command  = ""
+		self.scan_status = "OK" #Or Aborted
+		
+		f=open(self.specfile,'r+')
+		for line in f:
+			if line.startswith("#S %d"%self.scanid):
+				self.command = line
+				#The next 14 lines is the header of this scan
+				for i in range(14):
+					self.header.append(f.next().split("\n")[0])
+				self.colnames = f.next().split("\n")[0]
+				self.colnames = self.colnames.split()
+				self.colnames = self.colnames[1:]
+				for c in range(len(self.colnames)):
+					self.data[self.colnames[c]] = []
+				
+				stop = False
+				while not stop:
+					l=f.next()
+					if l.startswith("#R %d"%scanid) or l.startswith("#C"):
+						stop = True
+						if l.startswith("#R %d"%scanid):
+							self.scan_status = "OK"
+						else:
+							self.scan_status = "Aborted"
+					else:
+						stop = False
+						if l.startswith("#"):
+							continue
+						else:
+							item = l.split()
+							for i in range(len(item)):
+								self.data[self.colnames[i]].append(float(item[i]))
+					
+				break
+			else:
+				continue
+		f.close()
+		for k in self.data.keys():
+			self.data[k] = N.asarray(self.data[k])
+		for line in self.header:
+			if line.startswith("#P0"):
+				line = line.split()
+				line = line[1:]
+				self.motors['del'] = float(line[0])
+				self.motors['eta'] = float(line[1])
+				self.motors['chi'] = float(line[2])
+				self.motors['phi'] = float(line[3])
+				self.motors['nu'] = float(line[4])
+				self.motors['mu'] = float(line[5])
+				break
+			else:
+				continue
+	def __str__(self):
+		print "Spec file: ",self.specfile
+		print "Scan id: ",self.scanid
+		print "Command: ",self.command
+		print "Scan status: ",self.scan_status
+		
+		
+		
 class PopUpFringes(object):
 	def __init__(self, xdata, xlabel, ylabel, title):
 		self.popupwin=gtk.Window()
@@ -1444,9 +1517,8 @@ class MyMainWindow(gtk.Window):
 		dialog.destroy()
 	
 	def manual_calibration(self,widget):
-		#***** Check input data
-		#if self.geometry_manual.get_active():
-			
+		"""Checking input data for geometry setup
+		"""
 		distance = self.geometry_distance.get_text()
 		energy   = self.geometry_energy.get_text()
 		direct_beam = self.geometry_direct_beam.get_text()
@@ -1457,7 +1529,7 @@ class MyMainWindow(gtk.Window):
 		from scipy.constants import h,c,e
 		poni1 = self.direct_beam[1]*_PIXEL_SIZE
 		poni2 = self.direct_beam[0]*_PIXEL_SIZE
-		wavelength = h*c/e/self.energy
+		self.wavelength = h*c/e/self.energy
 		
 		qconv = xrayutilities.experiment.QConversion(['y-','x-','z+'],['z+','y-'],[1,0,0])
 		
@@ -1492,7 +1564,7 @@ class MyMainWindow(gtk.Window):
 																					rot3=None,
 																					pixel1=_PIXEL_SIZE,
 																					pixel2=_PIXEL_SIZE,
-																					wavelength=wavelength)
+																					wavelength=self.wavelength)
 		#self.experiment.Ang2Q.init_area('z+','y-', cch1=direct_beam[1], cch2=direct_beam[0], Nch1=Npx1,Nch2=Npx2, pwidth1=px1,pwidth2=px2, distance=distance, detrot=detrot, tiltazimuth=0, tilt=0)
 		
 		self.calibrated=True
@@ -2026,7 +2098,29 @@ class MyMainWindow(gtk.Window):
 		tth= []
 		cch1 = self.direct_beam[1]
 		cch2 = self.direct_beam[0]
+		if self.detector_type=="D5":
+			Nch1 = 578
+			Nch2 = 1148
+		elif self.detector_type=="S70":
+			Nch1 = 120
+			Nch2 = 578
+		elif self.detector_type == "D1":
+			Nch1 = 577
+			Nch2 = 913
+		# reduce data: number of pixels to average in each detector direction
+		default_nav = [3,3]
+		default_roi = [0,Nch1, 0,Nch2]  # region of interest on the detector
+		contour_level = 30
+		if self.detector_type == "D5":
+			contour_level = 10
 		
+		if self.detector_type=="S70":
+			default_nav = [1,1]
+		if self.detector_space_btn.get_active() and self.ROI_ON and self.ROI_DRAWN:
+			r = sorted([int(self.ROI_y0), int(self.ROI_y1)])
+			c = sorted([int(self.ROI_x0), int(self.ROI_x1)])
+			default_roi = [r[0],r[1],c[0],c[1]]
+			
 		if self.manip == "kappapsic":
 			th_motor = 'eta'
 			tth_motor= 'del'
@@ -2035,6 +2129,7 @@ class MyMainWindow(gtk.Window):
 			tth_motor= 'tth'
 		
 		for i in range(len(self.SPEC_ACTUAL_SCAN_DATA)):
+			print "Loading image: ",self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]
 			motor=get_motors(self.SPEC_ACTUAL_SCAN_HEADER[i])			
 			data = self.SPEC_ACTUAL_SCAN_DATA[i]
 			if data.shape == (960,560) or data.shape == (120,560):
@@ -2047,17 +2142,19 @@ class MyMainWindow(gtk.Window):
 			phi.append(motor['phi'])
 			nu.append(motor['nu'])
 			tth.append(motor[tth_motor])
+			data = xrayutilities.blockAverage2D(data, default_nav[0], default_nav[1], roi=default_roi)
 			DATA.append(data)
-			Nch1 = data.shape[0]
-			Nch2 = data.shape[1]
-
+		
 		DATA = N.asarray(DATA)
-		self.experiment.Ang2Q.init_area('z+','y-', cch1=cch1, cch2=cch2, Nch1=Nch1,Nch2=Nch2, pwidth1=_PIXEL_SIZE,pwidth2=_PIXEL_SIZE, distance=self.distance)
+		this_experiment = self.experiment
+		this_experiment.Ang2Q.init_area('z+','y-', cch1=cch1, cch2=cch2, Nch1=Nch1,Nch2=Nch2, 
+								  pwidth1=_PIXEL_SIZE,pwidth2=_PIXEL_SIZE, distance=self.distance, 
+								  Nav=default_nav, roi=default_roi)
 		if self.UB_MATRIX_LOAD:
-			h,k,l=self.experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area', U=self.UB_MATRIX)
+			h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area', U=self.UB_MATRIX)
 		else:
 			UB_Matrix = self.get_UB_from_spec(self.SPEC_ACTUAL_SCAN)
-			h,k,l=self.experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area', U=UB_Matrix)
+			h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area', U=UB_Matrix)
 		nx = 100
 		ny = 100
 		nz = 100
@@ -2068,11 +2165,15 @@ class MyMainWindow(gtk.Window):
 							gridder.zaxis.min():gridder.zaxis.max():1j*nz]
 		DATA  = gridder.data
 		maxint= N.log10(DATA.max())
-		DATA  = xrayutilities.maplog(DATA,maxint*0.90,0)
+		DATA  = xrayutilities.maplog(DATA,maxint*0.6,1)
 		mlab.figure()
-		mlab.contour3d(h,k,l,DATA,contours=50,opacity=0.5)
+		#mlab.contour3d(h,k,l,DATA,contours=50,opacity=0.5)
+		src  = mlab.pipeline.scalar_field(DATA)
+		src2 = mlab.pipeline.set_active_attribute(src,point_scalars='scalar')
+		mlab.pipeline.contour_surface(src2,contours=contour_level,opacity=0.5)
+
 		mlab.outline()
-		mlab.axes(nb_labels=5, xlabel='H', ylabel='K', zlabel='L')
+		mlab.axes(nb_labels=5, ranges=(h.min(),h.max(),k.min(),k.max(),l.min(),l.max()), xlabel='H', ylabel='K', zlabel='L')
 		mlab.colorbar(title="log(intensity)", orientation="vertical")
 		mlab.show()
 		mlab.close(all=True)
