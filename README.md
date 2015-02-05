@@ -20,8 +20,6 @@ INSTALLATION on LINUX and MAC OSX
 	- Matplotlib >= 1.4
 	- mayavi
 	- fabio
-	- Cython
-	- gcc (C compiler)
 	- pyFAI
 	- pyGTK -- for MAC, you can find it here: http://sourceforge.net/projects/macpkg/files/PyGTK/
 	- lmfit
@@ -35,11 +33,7 @@ INSTALLATION on WINDOWS
 
 	- pythonxy (https://code.google.com/p/pythonxy/) -- carefully check if mayavi is installed with. If not, you have to install mayavi.
 	
-	- fabio (https://pypi.python.org/pypi/fabio), 
-	
-	- Cython (https://pypi.python.org/pypi/Cython/), 
-	
-	- gcc (C compiler)
+	- fabio (https://pypi.python.org/pypi/fabio),
 	
 	- lmfit (https://pypi.python.org/pypi/lmfit/), 
 	

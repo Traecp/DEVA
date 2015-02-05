@@ -47,9 +47,6 @@ INSTALLATION on WINDOWS
 	
 	- PyGTK all in one win32 py27 (http://ftp.gnome.org/pub/GNOME/binaries/win32/pygtk/2.24/pygtk-all-in-one-2.24.2.win32-py2.7.msi)
 	
-	
-	*Optional, but strongly recommended:
-	
 	- pyFAI (https://pypi.python.org/pypi/pyFAI)
 	
 	- xrayutilities (https://pypi.python.org/pypi/xrayutilities) -- See help on this website for installation
