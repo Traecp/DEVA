@@ -850,7 +850,7 @@ def radial_distributions(center, data, maxi, removeZero=True, sectors=4) :
 
 
 ################################################################################
-def edf_write(data, name, ext='g.edf', verbose=False,**kwargs) :
+def edf_write(data, name, ext='.edf', verbose=False,**kwargs) :
     fname = os.path.basename(os.path.splitext(name)[0]+ext)
     out = open(fname, 'w')
     out.write("""{

@@ -2264,7 +2264,7 @@ class MyMainWindow(gtk.Window):
 			Nch1 = dim[0]
 			Nch2 = dim[1]
 		# reduce data: number of pixels to average in each detector direction
-		default_nav = [2,2]
+		default_nav = [5,5]
 		default_roi = [0,Nch1, 0,Nch2]  # region of interest on the detector
 		contour_level = 30
 		if self.detector_type == "D5":
@@ -2375,9 +2375,9 @@ class MyMainWindow(gtk.Window):
 				h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area', mat=self.substrate)
 			else:
 				h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area')
-		nx = 100
-		ny = 100
-		nz = 100
+		nx = 80
+		ny = 80
+		nz = 80
 		gridder = xrayutilities.Gridder3D(nx,ny,nz)
 		gridder(h,k,l,DATA)
 		h,k,l = N.mgrid[gridder.xaxis.min():gridder.xaxis.max():1j*nx,
