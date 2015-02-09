@@ -54,9 +54,9 @@ INSTALLATION on WINDOWS
 	
 + Installation:
 	
-	A binary package will be released soon.
+	A binary package has been built for Microsoft Windows: DEVA-2.0.3.win32.msi. Just double click on this file to execute the installation.
 
-	For the moment let's try to install DEVA with command line on windows: python setup.py install
+	For linux user you can install DEVA with: python setup.py install you have to be root (sudo) to install)
 	
 	
 RUNNING: 

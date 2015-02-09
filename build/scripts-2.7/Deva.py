@@ -74,20 +74,27 @@ def list_to_table(main_store, sort_col=2):
 	The EDF name must be in format: prefix_number.edf
 	"""
 	main_table = []
-	for i in range(len(main_store)):
-		e = []
-		e.append(main_store[i])
-		row=main_store[i].split("_")
-		e.append(row[0])
-		row = row[1]
-		row = row.split(".")[0]
-		if 'g' in row:
-			row = row[:-1]
-		e.append(int(row))
-		main_table.append(e)
-		
-	store = sort_table(main_table,col=sort_col)
-	return store
+	if len(main_store)>0:
+		for i in range(len(main_store)):
+			if "_" in main_store[i]:
+				e = []
+				e.append(main_store[i])
+				row=main_store[i].split("_")
+				e.append(row[0])
+				row = row[1]
+				row = row.split(".")[0]
+				if 'g' in row:
+					row = row[:-1]
+				e.append(int(row))
+				main_table.append(e)
+			else:
+				continue
+			
+		store = sort_table(main_table,col=sort_col)
+		return store
+	else:
+		return {}
+	
 
 def Fourier(X,vect):  
 	Nb  = vect.size   #number of data points
