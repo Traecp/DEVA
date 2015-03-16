@@ -70,15 +70,5 @@ DEVA/xrayutilities/io/rotanode_alignment.py
 DEVA/xrayutilities/io/seifert.py
 DEVA/xrayutilities/io/spec.py
 DEVA/xrayutilities/io/spectra.py
-DEVA/xrayutilities/io/__init__.py
-DEVA/xrayutilities/io/helper.py
-DEVA/xrayutilities/io/imagereader.py
-DEVA/xrayutilities/io/panalytical_xml.py
-DEVA/xrayutilities/io/pdcif.py
-DEVA/xrayutilities/io/radicon.py
-DEVA/xrayutilities/io/rotanode_alignment.py
-DEVA/xrayutilities/io/seifert.py
-DEVA/xrayutilities/io/spec.py
-DEVA/xrayutilities/io/spectra.py
 scripts/Deva.py
 scripts/xpad3_geometry.py

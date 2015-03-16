@@ -46,9 +46,8 @@ INSTALLATION on WINDOWS
 	- xrayutilities (https://pypi.python.org/pypi/xrayutilities) -- See help on this website for installation
 	
 	
-	If OpenMP not found or any error of VC++: Try to install these Microsoft packages:
-	- Windows SDK for Windows Server 2008 and .NET Framework 3.5: http://www.microsoft.com/en-us/download/details.aspx?id=11310
-	- Microsoft Visual C++ 2008 Redistributable Package (x86): http://www.microsoft.com/en-us/download/details.aspx?id=29
+	If Error "Unable to find vcvarsall.bat": Try to install this:
+	- C++ compiler for python 2.7: http://www.microsoft.com/en-us/download/details.aspx?id=44266
 	
 	Then retry the installation as below.
 	

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 __author__ = 'Tra NGUYEN THANH <thanh-tra.nguyen@esrf.fr>'
-__version__ = '2.0.3'
+__version__ = '2.0.4'
 __adv__ = 'setup.py'
 
 
@@ -17,7 +17,8 @@ except ImportError:
 name = 'DEVA'
 
 # Packages (subdirectories in lib/)
-packages = [name, name+'.pyFAI', name+'.utilities', name+'.xpad', name+'.xrayutilities', name+'.xrayutilities/io']
+#packages = [name, name+'.pyFAI', name+'.utilities', name+'.xpad', name+'.xrayutilities', name+'.xrayutilities/io']
+packages = [name, name+'.utilities', name+'.xpad']
 
 # Scripts (in scripts/)
 scripts = ['Deva.py', 'xpad3_geometry.py']
@@ -35,9 +36,6 @@ setup(name=name,
       url='http://www.esrf.fr/',
       license="CeCILL-C FREE SOFTWARE LICENSE",
       packages=packages,
-      package_data={
-        "DEVA": ["xrayutilities/*.conf"]
-        },
       scripts=['scripts/'+script for script in scripts],
       zip_safe = False,
       command_options=command_options
