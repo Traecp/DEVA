@@ -53,7 +53,7 @@ INSTALLATION on WINDOWS
 	
 + Installation:
 	
-	A binary package has been built for Microsoft Windows (32 bit, python 2.7): DEVA-2.0.3.win32.msi. Just double click on this file to execute the installation.
+	A binary package has been built for Microsoft Windows (32 bit, python 2.7): DEVA-X.Y.Z.win32.msi. This file is found in the for_Windows folder. Just double click on this file to execute the installation.
 
 	For linux user you can install DEVA with: python setup.py install (you have to be root (sudo) to install)
 	
