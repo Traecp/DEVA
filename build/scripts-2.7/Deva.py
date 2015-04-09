@@ -1,9 +1,12 @@
-#!/usr/bin/python
+#!C:\Python27\python.exe
 # -*- coding: utf-8 -*-
 ################ DEVA software: D2AM Edf images Visualisation and Analysis ##############
 ###### Dependencies: numpy, scipy, matplotlib, lmfit (sudo easy_install -U lmfit), pyFAI, fabio, Basemap
 #from gi.repository import GObject
 import gtk,gobject,threading, time
+# import multiprocessing as mp
+import sys
+from sys import stdout
 import os
 import re, operator
 import gc
@@ -31,21 +34,15 @@ from matplotlib.widgets import Cursor
 from matplotlib.patches import Rectangle
 from matplotlib.ticker import MaxNLocator
 #calculation of two theta,chi
-from mayavi import mlab
+
 import fabio
-try:
-	import pyFAI
-except:
-	from DEVA import pyFAI
-try:
-	import xrayutilities
-except:
-	from DEVA import xrayutilities
+import pyFAI
+import xrayutilities
 
 __author__="Tra NGUYEN THANH"
 __email__ = "thanhtra0104@gmail.com"
-__version__ = "2.0.3"
-__date__="04/02/2015"
+__version__ = "2.0.4"
+__date__="09/04/2015"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -60,9 +57,19 @@ mpl.rcParams['figure.subplot.right'] = 0.915
 mpl.rcParams['savefig.dpi'] = 300
 
 #Global variables
-_PIXEL_SIZE = 130e-6 #m
+_PIXEL_SIZE   = 130e-6 #m
 _SPEC_IMG_COL = ["img", "xpadNum"] #column containing image number in spec file
+MAIN_LOCK = threading.Lock()
 
+def get_scan_data(*args, **kwargs):
+	return MyMainWindow.get_scan_data(*args, **kwargs)
+
+def call_it(instance, name, args=(), kwargs=None):
+	"""indirect caller for instance methods and multiprocessing"""
+	if kwargs is None:
+		kwargs = {}
+	return getattr(instance, name)(*args, **kwargs)
+	
 def sort_table(table, col=0, reverse=False):
 	#reverse = True: Z-->A
 	#reverse = False: A-->Z
@@ -76,20 +83,22 @@ def list_to_table(main_store, sort_col=2):
 	main_table = []
 	if len(main_store)>0:
 		for i in range(len(main_store)):
-			if "_" in main_store[i]:
-				e = []
-				e.append(main_store[i])
-				row=main_store[i].split("_")
-				e.append(row[0])
-				row = row[1]
-				row = row.split(".")[0]
-				if 'g' in row:
-					row = row[:-1]
-				e.append(int(row))
-				main_table.append(e)
-			else:
+			try:
+				if "_" in main_store[i]:
+					e = []
+					e.append(main_store[i])
+					row=main_store[i].split("_")
+					e.append(row[0])
+					row = row[1]
+					row = row.split(".")[0]
+					if 'g' in row:
+						row = row[:-1]
+					e.append(int(row))
+					main_table.append(e)
+				else:
+					continue
+			except ValueError:
 				continue
-			
 		store = sort_table(main_table,col=sort_col)
 		return store
 	else:
@@ -519,7 +528,23 @@ class PopUpImage(object):
 		self.textes = []
 		self.plots  = []
 
-
+class get_scan_data_thread(threading.Thread):
+	def __init__(self,i, edf_folder, edf_basename):
+		threading.Thread.__init__(self)
+		self.Data = ()
+		self.order = i 
+		self.edf_folder = edf_folder
+		self.edf_basename = edf_basename
+	def run(self):
+		# MAIN_LOCK.acquire()
+		edf    = join(self.edf_folder, self.edf_basename)
+		data   = fabio.open(edf).data
+		header = fabio.open(edf).header
+		stdout.write("Loading %s\n"%self.edf_basename)
+		stdout.flush()
+		self.Data = (self.order,data,header)
+		# MAIN_LOCK.release()
+		
 class MyMainWindow(gtk.Window):
 
 	def __init__(self):
@@ -645,9 +670,7 @@ class MyMainWindow(gtk.Window):
 		self.treeView.append_column(self.TVcolumn)
 
 		self.sw.add(self.treeView)
-		self.threads = list()  # I made this be part of the full application
-		""" That allows us to wait for all threads on close-down, don't know how
-		necessary it is."""
+		self.threads = list()  # This is to manage multithreading jobs
 
 		self.current_folder = os.getcwd()
 		self.edf_folder     = self.current_folder
@@ -665,19 +688,51 @@ class MyMainWindow(gtk.Window):
 		self.geometry_setup_tbl = gtk.Table(3,4,True)
 		self.geometry_manual    = gtk.Button("VALIDATE the above parameters setup")
 		self.geometry_manual.connect("clicked", self.manual_calibration)
-		
+		#************** Check if the Geo_config.DEVA file exist **************
+		geo_distance = ""
+		geo_energy   = ""
+		geo_direct   = ""
+		geo_has_substrate= False
+		geo_substrate= ""
+		geo_substrate_other = ""
+		geo_inplane  = "1 1 0"
+		geo_outplane = "0 0 1"
+		if isfile("Geo_config.DEVA"):
+			geoconfig_file = open("Geo_config.DEVA",'r+')
+			for line in geoconfig_file:
+				if line.startswith("DISTANCE"):
+					geo_distance = line.split("=")[-1].split('\n')[0]
+				elif line.startswith("DIRECT_BEAM_XY"):
+					geo_direct   = line.split("=")[-1].split('\n')[0]
+				elif line.startswith("ENERGY"):
+					geo_energy   = line.split("=")[-1].split('\n')[0]
+				elif line.startswith("HAS_SUBSTRATE"):
+					geo_has_substrate = line.split("=")[-1].split('\n')[0]
+					if geo_has_substrate=="NO":
+						geo_has_substrate = False
+					elif geo_has_substrate=="YES":
+						geo_has_substrate = True
+				elif line.startswith("SUBSTRATE"):
+					geo_substrate = line.split("=")[-1].split('\n')[0]
+				elif line.startswith("INPLANE"):
+					geo_inplane = line.split("=")[-1].split('\n')[0]
+				elif line.startswith("OUTPLANE"):
+					geo_outplane = line.split("=")[-1].split('\n')[0]
+				
+			geoconfig_file.close()
+			
 		self.geometry_distance_txt = gtk.Label("Distance Samp-Det (m):")
 		self.geometry_distance     = gtk.Entry()
 		self.geometry_distance.set_usize(30,0)
-		self.geometry_distance.set_text("")
+		self.geometry_distance.set_text(geo_distance)
 		self.geometry_direct_beam_txt = gtk.Label("Direct beam X,Y:")
 		self.geometry_direct_beam     = gtk.Entry()
 		self.geometry_direct_beam.set_usize(30,0)
-		self.geometry_direct_beam.set_text("")
+		self.geometry_direct_beam.set_text(geo_direct)
 		self.geometry_energy_txt      = gtk.Label("Energy (eV):")
 		self.geometry_energy          = gtk.Entry()
 		self.geometry_energy.set_usize(30,0)
-		self.geometry_energy.set_text("")
+		self.geometry_energy.set_text(geo_energy)
 		self.geometry_distance_txt.set_alignment(0,0.5)
 		self.geometry_direct_beam_txt.set_alignment(0,0.5)
 		self.geometry_energy_txt.set_alignment(0,0.5)
@@ -705,29 +760,31 @@ class MyMainWindow(gtk.Window):
 		self.geometry_substrate_outplane_txt.set_alignment(0,0.5)
 		self.geometry_substrate = gtk.combo_box_new_text()
 		self.geometry_substrate.set_usize(30,0)
-		self.geometry_substrate.append_text("-- other")
-		self.geometry_substrate.append_text("Si")
-		self.geometry_substrate.append_text("Ge")
-		self.geometry_substrate.append_text("GaAs")
-		self.geometry_substrate.append_text("GaN")
-		self.geometry_substrate.append_text("GaP")
-		self.geometry_substrate.append_text("GaSb")
-		self.geometry_substrate.append_text("InAs")
-		self.geometry_substrate.append_text("InP")
-		self.geometry_substrate.append_text("InSb")
-		self.geometry_substrate.append_text("Al2O3")
+		substrate_list = ["-- other", "Si", "Ge", "GaAs", "GaN", "GaP", "GaSb", "InAs", "InP", "InSb", "Al2O3"]
+		for s in range(len(substrate_list)):
+			self.geometry_substrate.append_text(substrate_list[s])
 		self.geometry_substrate.set_active(0)
 		self.has_substrate = False
 		
+		if geo_has_substrate:
+			if geo_substrate in substrate_list:
+				geo_substrate_other = ""
+				for i in range(len(substrate_list)):
+					if geo_substrate == substrate_list[i]:
+						self.geometry_substrate.set_active(i)
+						break
+			else:
+				geo_substrate_other = geo_substrate
+		
 		self.geometry_substrate_other = gtk.Entry()
 		self.geometry_substrate_other.set_usize(30,0)
-		self.geometry_substrate_other.set_text("")
+		self.geometry_substrate_other.set_text(geo_substrate_other)
 		self.geometry_substrate_inplane = gtk.Entry()
 		self.geometry_substrate_inplane.set_usize(30,0)
-		self.geometry_substrate_inplane.set_text("1 1 0")
+		self.geometry_substrate_inplane.set_text(geo_inplane)
 		self.geometry_substrate_outplane = gtk.Entry()
 		self.geometry_substrate_outplane.set_usize(30,0)
-		self.geometry_substrate_outplane.set_text("0 0 1")
+		self.geometry_substrate_outplane.set_text(geo_outplane)
 		
 		self.tooltips.set_tip(self.geometry_UB_txt, "Import a UB matrix which is a text file with a 3x3 matrix (3 lines, 3 colunms)")
 		
@@ -825,6 +882,7 @@ class MyMainWindow(gtk.Window):
 
 		#self.midle_panel.pack_start(self.main_figure_navBar, False,False, 2)
 		#*********************************** SCAN SLIDER *****************************************
+		
 		#Variables for scan slider:
 		self.SCAN_IMG = []
 		self.SPEC_IMG = []#List of all spec images
@@ -886,7 +944,7 @@ class MyMainWindow(gtk.Window):
 		plot_roi_txt = gtk.Label("Plot ROI:")
 		self.tooltips.set_tip(plot_roi_txt, "Check this box to draw a ROI. Click on the image and drag the mouse to draw. Click again to ecrase the ROI")
 		plot_roi_txt.set_alignment(0,0.5)
-		self.draw_roi_btn = gtk.CheckButton("Draw a ROI")
+		self.draw_roi_btn = gtk.CheckButton("Draw a ROI (Very helpful for 3D plot)")
 		self.draw_roi_btn.connect("toggled",self.Enable_draw_roi)
 		self.plot_3D_scan_btn = gtk.Button("Plot 3D HKL of this scan")
 		self.plot_3D_scan_btn.connect("clicked",self.plot_3D_scan)
@@ -1679,6 +1737,22 @@ class MyMainWindow(gtk.Window):
 			else:
 				MSSG+= "\nYou donot have a UB matrix, nor a substrate. A UB equal to unity will be applied\n"
 		self.popup_info("info",MSSG)
+		geo_file = open("Geo_config.DEVA","w")
+		content  =""
+		content += "ENERGY="+str(self.energy)+"\n"
+		content += "DISTANCE="+str(self.distance)+"\n"
+		content += "DIRECT_BEAM_XY="+str(self.direct_beam[0])+","+str(self.direct_beam[1])+"\n"
+		if self.has_substrate:
+			content += "HAS_SUBSTRATE=YES\n"
+			content += "SUBSTRATE="+substrate+"\n"
+		else:
+			content += "HAS_SUBSTRATE=NO\n"
+		
+		content += "INPLANE="+str(self.in_plane[0])+" "+str(self.in_plane[1])+" "+str(self.in_plane[2])+"\n"
+		content += "OUTPLANE="+str(self.out_of_plane[0])+" "+str(self.out_of_plane[1])+" "+str(self.out_of_plane[2])+"\n"
+		
+		geo_file.write(content)
+		geo_file.close()
 			
 	def calculation_angular_coordinates(self):
 		if self.detector_type=="D5":
@@ -2031,6 +2105,14 @@ class MyMainWindow(gtk.Window):
 	def update_scan_slider(self,widget):
 		self.update_scan_slider_now()
 	
+	def get_scan_data(self,i,edf_base):
+		edf    = join(self.edf_folder, edf_base)
+		data   = fabio.open(edf).data
+		header = fabio.open(edf).header
+		stdout.write("\r Loading %s"%edf_base)
+		stdout.flush()
+		return (i,data,header)
+		
 	def update_scan_slider_now(self):
 		actual_scan_num = self.scan_slider_spinButton.get_value()
 		actual_scan_num = int(actual_scan_num)
@@ -2085,11 +2167,21 @@ class MyMainWindow(gtk.Window):
 		img_list = self.SPEC_ACTUAL_SCAN_IMG_NAMES
 		#print "Actual images: ",img_list
 		print "Loading data for this scan %d ..."%self.SPEC_ACTUAL_SCAN.nr
-		for j in range(len(img_list)):
-			#print "Getting ",img_list[j]
-			edf = join(self.edf_folder, img_list[j])
-			self.SPEC_ACTUAL_SCAN_DATA.append(fabio.open(edf).data)
-			self.SPEC_ACTUAL_SCAN_HEADER.append(fabio.open(edf).header)
+		
+		"""" Getting data by multithreading """
+		threads = []
+		for i in range(len(img_list)):
+			t = get_scan_data_thread(i,self.edf_folder, img_list[i])
+			threads.append(t)
+			t.start()
+		output = []
+		for t in threads:
+			t.join()
+			output.append(t.Data)
+		output.sort()
+		self.SPEC_ACTUAL_SCAN_DATA   = [o[1] for o in output]
+		self.SPEC_ACTUAL_SCAN_HEADER = [o[2] for o in output]
+		print "Don't worry about the order printed above."
 		print "End."
 		#except:
 			#pass
@@ -2103,6 +2195,7 @@ class MyMainWindow(gtk.Window):
 		
 		if not self.IMG_INIT:
 			self.init_image()
+		gc.collect()
 		return
 	
 	def check_and_update_scan_slider(self):
@@ -2252,8 +2345,12 @@ class MyMainWindow(gtk.Window):
 				self.fabioIMG = fabio.open(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]))
 			else:
 				pass
+		gc.collect()
+		return
+		
 	def plot_3D_scan(self,w):
 		""" popup a mayavi window to visualize the 3D data """
+		gc.collect()
 		self.what_is_this_manip()
 		print "Manip ",self.manip
 		DATA = []
@@ -2271,11 +2368,11 @@ class MyMainWindow(gtk.Window):
 			Nch1 = dim[0]
 			Nch2 = dim[1]
 		# reduce data: number of pixels to average in each detector direction
-		default_nav = [5,5]
+		default_nav = [4,4]
 		default_roi = [0,Nch1, 0,Nch2]  # region of interest on the detector
-		contour_level = 30
-		if self.detector_type == "D5":
-			contour_level = 10
+		contour_level = 20
+		if self.detector_type == "S70":
+			contour_level = 30
 		
 		if self.detector_type=="S70":
 			default_nav = [1,1]
@@ -2297,7 +2394,7 @@ class MyMainWindow(gtk.Window):
 		scan_motors['nu']      = []
 		if self.detector_type != "D1":
 			for i in range(len(self.SPEC_ACTUAL_SCAN_DATA)):
-				print "Loading image: ",self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]
+				# print "Loading image: ",self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]
 				motor=get_motors(self.SPEC_ACTUAL_SCAN_HEADER[i])			
 				data = self.SPEC_ACTUAL_SCAN_DATA[i]
 				if data.shape == (960,560) or data.shape == (120,560):
@@ -2344,7 +2441,7 @@ class MyMainWindow(gtk.Window):
 			
 			bad_images = []#For D1 detector, sometime the recorded images suffer from cosmic rays which pruduce bad images
 			for i in range(len(self.SPEC_ACTUAL_SCAN_DATA)):
-				print "Loading image: ",self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]
+				# print "Loading image: ",self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]
 				if os.path.getsize(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]))<1.5e6:
 					bad_images.append(i)
 					print "BAD IMAGE ",self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]
@@ -2356,7 +2453,7 @@ class MyMainWindow(gtk.Window):
 				
 				
 		print "Data processing ..."
-		DATA = N.asarray(DATA)
+		# DATA = N.asarray(DATA)
 		th   = N.asarray(scan_motors[th_motor])
 		tth  = N.asarray(scan_motors[tth_motor])
 		chi  = 90-N.asarray(scan_motors['chi'])
@@ -2382,24 +2479,23 @@ class MyMainWindow(gtk.Window):
 				h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area', mat=self.substrate)
 			else:
 				h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area')
-		nx = 80
-		ny = 80
-		nz = 80
+		nx = 50
+		ny = 50
+		nz = 50
 		gridder = xrayutilities.Gridder3D(nx,ny,nz)
 		gridder(h,k,l,DATA)
 		h,k,l = N.mgrid[gridder.xaxis.min():gridder.xaxis.max():1j*nx,
 							gridder.yaxis.min():gridder.yaxis.max():1j*ny,
 							gridder.zaxis.min():gridder.zaxis.max():1j*nz]
-		DATA  = gridder.data
-		maxint= N.log10(DATA.max())
-		DATA  = xrayutilities.maplog(DATA,maxint*0.5,1)
+		MAP_data  = gridder.data
+		maxint= N.log10(MAP_data.max())
+		MAP_data  = xrayutilities.maplog(MAP_data,maxint*0.5,1)
 		print "Plotting 3D image ..."
+		from mayavi import mlab
 		mlab.figure()
-		#mlab.contour3d(h,k,l,DATA,contours=50,opacity=0.5)
-		src  = mlab.pipeline.scalar_field(DATA)
+		src  = mlab.pipeline.scalar_field(MAP_data)
 		src2 = mlab.pipeline.set_active_attribute(src,point_scalars='scalar')
 		mlab.pipeline.contour_surface(src2,contours=contour_level,opacity=0.5)
-
 		mlab.outline()
 		mlab.axes(nb_labels=5, ranges=(h.min(),h.max(),k.min(),k.max(),l.min(),l.max()), xlabel='H', ylabel='K', zlabel='L')
 		mlab.colorbar(title="log(intensity)", orientation="vertical")
@@ -2742,27 +2838,14 @@ class MyMainWindow(gtk.Window):
 		list_dir = listdir(main_dir)
 		no_of_threads = len(list_dir)
 		for i in range(no_of_threads):
-			#t = threading.Thread(target=self._thread_scanning,args=(main_dir,list_dir[i],))
-			#self.threads.append(t)
-			#t.start()
-			self._thread_scanning(main_dir,list_dir[i].decode('utf8'))
-
-		#gobject.timeout_add(200, self._callback)  # This will cause the main app to
-		#check every 200 ms if the threads are done.
-	def _callback(self):
-		if threading.active_count() == 1:  # If only one left, scanning is done
-			return False  # False make callback stop
-		#print threading.active_count()
-		return True
-	
+			t = threading.Thread(target=self._thread_scanning,args=(main_dir,list_dir[i].decode('utf8'),))
+			self.threads.append(t)
+			t.start()
+			# self._thread_scanning(main_dir,list_dir[i].decode('utf8'))	
 	def _thread_scanning(self,main_d,list_d):
 		path = os.sep.join((main_d, list_d))  # Made use of os's sep instead...
 		path = path.decode('utf8')
 		if os.path.isdir(path):
-			#list_subd = os.listdir(path)
-			#for sub in list_subd:
-				#parent=self.MODEL.append(parent,[sub])
-			#self.scan_EDF_files(grand_parent,path)
 			main_store= [i for i in listdir(path) if isfile(join(path,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
 			main_store = list_to_table(main_store,sort_col=2)
 			if len(main_store)>0:
@@ -2770,26 +2853,7 @@ class MyMainWindow(gtk.Window):
 				self.TABLE_STORE[str(path)] = main_store
 				self.store[str(path)] = get_column_from_table(main_store,0)
 				for f in main_store:
-					self.MODEL.append(parent,[f[0]])
-			#else:
-				#self.store[str(path)] = [None]
-
-		#time.sleep(3)  # Useless other than to delay finish of thread.
-	
-	#def scan_EDF_files(self,parent, this_dir):
-		#""" Get EDF files from this_directory """
-		##print "Scanning this directory: ",this_dir
-		#main_store= [i for i in listdir(this_dir) if isfile(join(this_dir,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
-		#main_store = sorted(main_store)
-		#if len(main_store)>0:
-			#self.store[str(this_dir)] = main_store
-			#for f in main_store:
-				#self.MODEL.append(parent,[f])
-		#else:
-			#self.store[str(this_dir)] = [None]
-		##print "Scanning... ",self.store.keys()
-		##print this_dir
-		
+					self.MODEL.append(parent,[f[0]])	
 	
 	def choose_folder(self,w):
 		dialog = gtk.FileChooserDialog(title="Select an EDF folder",action=gtk.FILE_CHOOSER_ACTION_SELECT_FOLDER, buttons = (gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
@@ -2799,7 +2863,6 @@ class MyMainWindow(gtk.Window):
 		if response==gtk.RESPONSE_OK:
 			folder=dialog.get_filename()
 			folder=folder.decode('utf8')
-			#folder_basename = folder.split("/")[-1]
 			folder_basename = os.path.basename(os.path.dirname(folder))
 			#print folder
 			main_store= [i for i in listdir(folder) if isfile(join(folder,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
@@ -2808,7 +2871,10 @@ class MyMainWindow(gtk.Window):
 			
 			self.current_folder = folder
 			#print self.store
+			self.threads = []
 			self.get_list_dir(self.current_folder)
+			for t in self.threads:
+				t.join()
 			if len(main_store)>0:
 				#main_store = sorted(main_store)
 				main_store = list_to_table(main_store,sort_col=2)
@@ -2840,7 +2906,10 @@ class MyMainWindow(gtk.Window):
 			#self.list_store.clear()
 			self.TABLE_STORE[self.current_folder] = main_store
 			self.store[self.current_folder] = get_column_from_table(main_store,0)
+			self.threads = []
 			self.get_list_dir(self.current_folder)
+			for t in self.threads:
+				t.join()
 			self.store_img = {}
 			for k in self.store.keys():
 				self.store_img[k] = get_column_from_table(self.TABLE_STORE[k],2)
@@ -4212,6 +4281,5 @@ class MyMainWindow(gtk.Window):
 #                                       FINISHED
 #***********************************************************************************************
 if __name__ == "__main__":
-	gobject.threads_init()
-	MyMainWindow()
+	m=MyMainWindow()
 	gtk.main()
