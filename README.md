@@ -31,7 +31,7 @@ INSTALLATION on WINDOWS
 ==========================
 + Requirements (all of these packages must be in 32 bits for python 2.7):
 
-	- pythonxy (https://code.google.com/p/pythonxy/) -- carefully check if mayavi (a part of ETS) is installed with. If not, you have to install mayavi.
+	- pythonxy (https://code.google.com/p/pythonxy/) -- carefully check if mayavi (a part of ETS) is installed with (see the wiki page for detail). If not, you have to install mayavi.
 	
 	- fabio (https://pypi.python.org/pypi/fabio),
 	
@@ -53,12 +53,13 @@ INSTALLATION on WINDOWS
 	
 + Installation:
 	
-	A binary package has been built for Microsoft Windows (32 bit, python 2.7): DEVA-X.Y.Z.win32.msi. This file is found in the for_Windows folder. Just double click on this file to execute the installation.
+	A binary package has been built for Microsoft Windows (32 bit, python 2.7): DEVA-X.Y.Z.win32.msi. This file is found in the "for_Windows" folder. Just double click on this file to execute the installation.
 
 	For linux user you can install DEVA with: python setup.py install (you have to be root (sudo) to install)
 	
 	
 RUNNING: 
 ==========================
-to run DEVA, just open a terminal (or command prompt on Windows) and type: Deva.py
+to run DEVA, just open a terminal wherever you want (or command prompt on Windows) and type: Deva.py
++ Please refer to the wiki pages for more detail about software usage.
 	
