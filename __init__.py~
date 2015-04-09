@@ -1,0 +1,16 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+# Automatically import "autonomous" modules
+#__all__ = ['libXpad','ColoredText','Statistics', 'det_mask', 'xpad3_geometry', 'xpad3_spec']
+__all__ = ['pyFAI', 'utilities', 'xpad']
+name='DEVA'
+# # Modules depending on external (non-trivial) packages
+#__others__ = ['pyFAI']
+#package_data = {'pyFAI':['*.py']}
+# Set to True if you want to import all previous modules directly
+importAll = True
+
+if importAll:
+    for pkg in __all__:
+        __import__(__name__ + name + pkg)

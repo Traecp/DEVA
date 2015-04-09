@@ -5,15 +5,13 @@
 #from gi.repository import GObject
 import gtk,gobject,threading, time
 import os
-import re, operator
 import gc
 from os import listdir
 from os.path import isfile,join
 import math
 import numpy as N
 from numpy import unravel_index
-from scipy import ndimage, stats
-from scipy.fftpack import fft, fftfreq, fftshift
+from scipy import ndimage
 from lmfit import Parameters, minimize
 from DEVA.xpad import libXpad as libX
 from DEVA.utilities import Combination_edf_by_translationXZ as EDF_XZ_combination
@@ -31,15 +29,19 @@ from matplotlib.widgets import Cursor
 from matplotlib.patches import Rectangle
 from matplotlib.ticker import MaxNLocator
 #calculation of two theta,chi
-from mayavi import mlab
 import fabio
-import pyFAI
-import xrayutilities
+try:
+	import pyFAI
+except:
+	from DEVA import pyFAI
+try:
+	import xrayutilities
+except:
+	from DEVA import xrayutilities
 
 __author__="Tra NGUYEN THANH"
-__email__ = "thanhtra0104@gmail.com"
-__version__ = "2.0.4"
-__date__="06/03/2015"
+__version__ = "1.3.7"
+__date__="22/01/2015"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -55,66 +57,13 @@ mpl.rcParams['savefig.dpi'] = 300
 
 #Global variables
 _PIXEL_SIZE = 130e-6 #m
-_SPEC_IMG_COL = ["img", "xpadNum"] #column containing image number in spec file
+_SPEC_IMG_COL = "img" #column containing image number in spec file
 
-def sort_table(table, col=0, reverse=False):
-	#reverse = True: Z-->A
-	#reverse = False: A-->Z
-	return sorted(table, key=operator.itemgetter(col), reverse=reverse)
-
-def list_to_table(main_store, sort_col=2):
-	""" Convert the list of edf image into a table of 3 columns:
-	EDF_name : EDF_prefix : EDF_number
-	The EDF name must be in format: prefix_number.edf
-	"""
-	main_table = []
-	if len(main_store)>0:
-		for i in range(len(main_store)):
-			if "_" in main_store[i]:
-				e = []
-				e.append(main_store[i])
-				row=main_store[i].split("_")
-				e.append(row[0])
-				row = row[1]
-				row = row.split(".")[0]
-				if 'g' in row:
-					row = row[:-1]
-				e.append(int(row))
-				main_table.append(e)
-			else:
-				continue
-			
-		store = sort_table(main_table,col=sort_col)
-		return store
-	else:
-		return {}
-	
-
-def Fourier(X,vect):  
-	Nb  = vect.size   #number of data points
-	T  = X[1] - X[0] #sample spacing
-	TF = fft(vect)
-	
-	xf = fftfreq(Nb,T)
-	xf = fftshift(xf)
-	yplot = fftshift(TF)
-	yplot = N.abs(yplot)
-	yplot = yplot[Nb/2:]
-	xf    = xf[Nb/2:]
-	return xf, yplot/yplot.max()
-
-def flat_data(data,dynlow, dynhigh, log):
+def flat_data(data,dynlow, dynhigh):
 	""" Returns data where maximum superior than 10^dynhigh will be replaced by 10^dynhigh, inferior than 10^dynlow will be replaced by 10^dynlow"""
-	if log:
-		mi = 10**dynlow
-		ma = 10**dynhigh
-		data=N.minimum(N.maximum(data,mi),ma)
-		data=N.log10(data)
-	else:
-		mi = dynlow
-		ma = dynhigh
-		data=N.minimum(N.maximum(data,mi),ma)
-	return data
+	mi = 10**dynlow
+	ma = 10**dynhigh
+	return N.minimum(N.maximum(data,mi),ma)
 
 def psdVoigt(parameters,x):
 	"""Define pseudovoigt function"""
@@ -258,8 +207,6 @@ def select_files_from_list(s, beg, end):
 		l = ss.split(spliter)
 		l = l[1]
 		n = l.split(".")[0]
-		if 'g' in n:
-			n = n[:-1]
 		n = int(n)
 		if n in range(beg, end+1):
 			out.append(ss)
@@ -279,241 +226,13 @@ def get_img_list(edf_list):
 			l = edf.split(spliter)
 			l = l[1]
 			n = l.split(".")[0]
-			if 'g' in n:
-				n = n[:-1]
 			n = int(n)
 			out.append(n)
 		else:
 			out.append(None)
 	out = N.asarray(out)
 	return N.asarray(out)
-
-def get_column_from_table(table,col):
-	out = []
-	for i in range(len(table)):
-		out.append(table[i][col])
-	return out
-
-
-class Scan_D1(object):
-	""" Object containing one scan
-	Reading from old format dataspec recorded by Xpad D1 detector
-	"""
-	def __init__(self,scanid,command,colnames,header, scan_status, data):
-		self.nr = int(scanid)
-		self.command = command
-		self.colnames= colnames
-		self.header = header
-		self.motors  = {}
-		self.scan_status = scan_status
-		self.data = data
-		self.count_time = 0
-	def ReadData(self):
-		for line in self.header:
-			if line.startswith("#P0"):
-				line = line.split()
-				line = line[1:]
-				self.motors['del'] = float(line[0])
-				self.motors['eta'] = float(line[1])
-				self.motors['chi'] = float(line[2])
-				self.motors['phi'] = float(line[3])
-				self.motors['nu'] = float(line[4])
-				self.motors['mu'] = float(line[5])
-				#break
-			elif line.startswith("#T"):
-				line = line.split()
-				self.count_time = float(line[1])
-			else:
-				continue
-		
-	def __str__(self):
-		return self.command
-		
-
-class Read_Spec_D1(object):
-	""" Read a scan from dataspec file, i.e. kappapsic.DATE - old format used by D1 xpad detector
-	Use: scan = Read_Spec_D1(specfile)
-	Where specfile is the kappapsic.DATE file
-	"""
-	def __init__(self, specfile):
-		self.full_filename = specfile
-		self.filename = os.path.basename(self.full_filename)
-		self.scan_list = []
-		self.Parse()
-		
-	def Parse(self):
-		
-		f=open(self.full_filename,'r+')
-		for line in f:
-			if line.startswith("#S "):
-				print "Parsing ",line
-				header = []
-				data   = {}
-				cmd    = line
-				cmd    = cmd.split()
-				scanid = int(cmd[1])
-				cm     = cmd[2:]
-				command= ""
-				for i in range(len(cm)):
-					command+=cm[i]
-					if i<len(cm)-1:
-						command+=" "
-				#The next 14 lines is the header of this scan
-				for i in range(14):
-					header.append(f.next().split("\n")[0])
-				colnames = f.next().split("\n")[0]
-				colnames = colnames.split()
-				colnames = colnames[1:]
-				for c in range(len(colnames)):
-					data[colnames[c]] = []
-				
-				stop = False
-				while not stop:
-					l=f.next()
-					if l.startswith("#R %d"%scanid) or l.startswith("#C"):
-						stop = True
-						if l.startswith("#R %d"%scanid):
-							scan_status = "OK"
-						else:
-							scan_status = "ABORTED"
-					else:
-						stop = False
-						if l.startswith("#"):
-							continue
-						else:
-							item = l.split()
-							for i in range(len(item)):
-								data[colnames[i]].append(float(item[i]))
-				
-				for k in data.keys():
-					data[k] = N.asarray(data[k])
-				s = Scan_D1(scanid,command,colnames,header, scan_status, data)
-				self.scan_list.append(s)
-			else:
-				continue
-		f.close()
-		
-	def __str__(self):
-		out=""
-		out+="Spec file: %s"%self.full_filename
-		out+= "\nThere are %d scans recorded"%len(self.scan_list)
-		return out
-		
-class PopUpFringes(object):
-	def __init__(self, xdata, xlabel, ylabel, title):
-		self.popupwin=gtk.Window()
-		self.popupwin.set_size_request(600,550)
-		self.popupwin.set_position(gtk.WIN_POS_CENTER)
-		self.popupwin.set_border_width(10)
-		self.xdata = xdata
-		vbox = gtk.VBox()
-		self.fig=Figure(dpi=100)
-		self.ax  = self.fig.add_subplot(111)
-		self.canvas  = FigureCanvas(self.fig)
-		self.main_figure_navBar = NavigationToolbar(self.canvas, self)
-		self.cursor = Cursor(self.ax, color='k', linewidth=1, useblit=True)
-		self.ax.set_xlabel(xlabel, fontsize = 18)
-		self.ax.set_ylabel(ylabel, fontsize = 18)
-		self.ax.set_title(title, fontsize = 18)
-		
-		xi = N.arange(len(self.xdata))		
-		slope, intercept, r_value, p_value, std_err = stats.linregress(self.xdata,xi)
-		fitline = slope*self.xdata+intercept
-		
-		self.ax.plot(self.xdata, fitline, 'r-',self.xdata,xi, 'bo')
-		self.ax.axis([self.xdata.min(),self.xdata.max(),xi.min()-1, xi.max()+1])
-		
-		self.ax.text(0.3, 0.9,'Slope = %.4f +- %.4f' % (slope, std_err),
-								horizontalalignment='center',
-								verticalalignment='center',
-								transform = self.ax.transAxes,
-								color='red')
-		vbox.pack_start(self.main_figure_navBar, False, False, 0)
-		vbox.pack_start(self.canvas, True, True, 2)
-		self.popupwin.add(vbox)
-		self.popupwin.connect("destroy", self.dest)
-		self.popupwin.show_all()
 	
-	def dest(self,widget):
-		self.popupwin.destroy()
-	
-class PopUpImage(object):
-	def __init__(self, xdata, ydata, xlabel, ylabel, title):
-		self.popupwin=gtk.Window()
-		self.popupwin.set_size_request(600,550)
-		self.popupwin.set_position(gtk.WIN_POS_CENTER)
-		self.popupwin.set_border_width(10)
-		self.xdata = xdata
-		self.ydata = ydata
-		vbox = gtk.VBox()
-		self.fig=Figure(dpi=100)
-		self.ax  = self.fig.add_subplot(111)
-		self.canvas  = FigureCanvas(self.fig)
-		self.main_figure_navBar = NavigationToolbar(self.canvas, self)
-		self.cursor = Cursor(self.ax, color='k', linewidth=1, useblit=True)
-		self.canvas.mpl_connect("button_press_event",self.on_press)
-		self.ax.set_xlabel(xlabel, fontsize = 18)
-		self.ax.set_ylabel(ylabel, fontsize = 18)
-		self.ax.set_title(title, fontsize = 18)
-		self.ax.plot(self.xdata, self.ydata, 'b-', lw=2)
-		
-		self.textes = []
-		self.plots  = []
-		vbox.pack_start(self.main_figure_navBar, False, False, 0)
-		vbox.pack_start(self.canvas, True, True, 2)
-		self.popupwin.add(vbox)
-		self.popupwin.connect("destroy", self.dest)
-		self.popupwin.show_all()
-	
-	def dest(self,widget):
-		self.popupwin.destroy()
-	
-	def on_press(self, event):
-		if event.inaxes == self.ax and event.button==3:
-			self.clear_notes()
-			xc = event.xdata
-			#***** Find the closest x value *****
-			residuel = self.xdata - xc
-			residuel = N.abs(residuel)
-			j = N.argmin(residuel)
-			#y = self.ydata[i-1:i+1]
-			#yc= y.max()
-			#j = N.where(self.ydata == yc)
-			#j = j[0][0]
-			xc= self.xdata[j]
-			x_fit = self.xdata[j-3:j+3]
-			y_fit = self.ydata[j-3:j+3]
-			fitted_param, fitted_data = fit(x_fit, y_fit, xc, True)
-			x_fit = N.linspace(x_fit.min(), x_fit.max(), 200)
-			y_fit = psdVoigt(fitted_param, x_fit)
-			period = fitted_param['xc'].value
-			std_err= fitted_param['xc'].stderr
-			
-			p = self.ax.plot(x_fit, y_fit,'r-')
-			p2 = self.ax.axvline(period,color='green',lw=2)
-			
-			txt=self.ax.text(0.05, 0.9, 'Period = %.4f +- %.4f (nm)'%(period, std_err), transform = self.ax.transAxes, color='red')
-			self.textes.append(txt)
-			self.plots.append(p[0])
-			self.plots.append(p2)
-		elif event.inaxes == self.ax and event.button==2:
-			dif = N.diff(self.ydata)
-			dif = dif/dif.max()
-			p3=self.ax.plot(dif,'r-')
-			self.plots.append(p3[0])
-		self.canvas.draw()
-	
-	def clear_notes(self):
-		if len(self.textes)>0:
-			for t in self.textes:
-				t.remove()
-		if len(self.plots)>0:
-			for p in self.plots:
-				p.remove()
-		self.textes = []
-		self.plots  = []
-
-
 class MyMainWindow(gtk.Window):
 
 	def __init__(self):
@@ -539,26 +258,12 @@ class MyMainWindow(gtk.Window):
 		self.detector_D1 = gtk.MenuItem("XPAD D1")
 		self.detector_D1.connect("activate", self.set_detector, "D1") #a definir fonction set_detector
 		self.detector_menu.append(self.detector_D1)
-		
+
 		self.detector_S70 = gtk.MenuItem("XPAD S70")
 		self.detector_S70.connect("activate", self.set_detector, "S70")
 		self.detector_menu.append(self.detector_S70)
-		#Menu manip
-		self.experiment_type = "GONIO"
-		self.manip_menu = gtk.Menu()
-		self.manipm = gtk.MenuItem("Experiment")
-		self.manipm.set_submenu(self.manip_menu)
-
-		self.manip_gonio = gtk.MenuItem("Gonio")
-		self.manip_gonio.connect("activate", self.set_manip, "gonio")
-		self.manip_menu.append(self.manip_gonio)
-
-		self.manip_gisaxs = gtk.MenuItem("GISAXS")
-		self.manip_gisaxs.connect("activate", self.set_manip, "gisaxs")
-		self.manip_menu.append(self.manip_gisaxs)
 
 		self.menubar.append(self.detm)
-		self.menubar.append(self.manipm)
 
 		self.toolbar = gtk.Toolbar()
 		self.toolbar.set_style(gtk.TOOLBAR_ICONS)
@@ -655,7 +360,6 @@ class MyMainWindow(gtk.Window):
 		self.page_batch_correction = gtk.HBox() #For batch correction of EDF
 		
 		#**************************** Geometry setup ******************************************
-		self.qconv = xrayutilities.experiment.QConversion(['y-','x-','z+'],['z+','y-'],[1,0,0])
 		self.geometry_setup_tbl = gtk.Table(3,4,True)
 		self.geometry_manual    = gtk.Button("VALIDATE the above parameters setup")
 		self.geometry_manual.connect("clicked", self.manual_calibration)
@@ -710,8 +414,7 @@ class MyMainWindow(gtk.Window):
 		self.geometry_substrate.append_text("InP")
 		self.geometry_substrate.append_text("InSb")
 		self.geometry_substrate.append_text("Al2O3")
-		self.geometry_substrate.set_active(0)
-		self.has_substrate = False
+		self.geometry_substrate.set_active(1)
 		
 		self.geometry_substrate_other = gtk.Entry()
 		self.geometry_substrate_other.set_usize(30,0)
@@ -798,20 +501,12 @@ class MyMainWindow(gtk.Window):
 		########### ZOOM ACTION #################################
 		self.zoom = False #Press the Zoom button on the tool bar
 		self.zoom_press = False #Button pressed in the axe to draw a rectangle
-		self.ROI_ON = False
-		self.ROI_press = False
 		self.rect = Rectangle((0,0),0,0)
-		self.roi_rect = Rectangle((0,0),0,0)
 		self.x0 =0
 		self.y0 =0
 		self.x1 =0
 		self.y1 =0
-		self.ROI_x0 =0
-		self.ROI_y0 =0
-		self.ROI_x1 =0
-		self.ROI_y1 =0
 		self.ax.add_patch(self.rect)
-		self.ax.add_patch(self.roi_rect)
 		self.canvas.mpl_connect("motion_notify_event",self.on_motion)
 		self.canvas.mpl_connect("button_press_event",self.on_press)
 		self.canvas.mpl_connect("button_release_event",self.on_release)
@@ -876,15 +571,6 @@ class MyMainWindow(gtk.Window):
 		self.scan_slider_skip_toy   = gtk.CheckButton("Toy")
 		self.scan_slider_skip_rien  = gtk.CheckButton("Rien")
 		#skip_box.pack_start(self.scan_slider_skip_scans, False, False, 0)
-		#Plot roi
-		plot_roi_txt = gtk.Label("Plot ROI:")
-		self.tooltips.set_tip(plot_roi_txt, "Check this box to draw a ROI. Click on the image and drag the mouse to draw. Click again to ecrase the ROI")
-		plot_roi_txt.set_alignment(0,0.5)
-		self.draw_roi_btn = gtk.CheckButton("Draw a ROI")
-		self.draw_roi_btn.connect("toggled",self.Enable_draw_roi)
-		self.plot_3D_scan_btn = gtk.Button("Plot 3D HKL of this scan")
-		self.plot_3D_scan_btn.connect("clicked",self.plot_3D_scan)
-		
 		skip_box.pack_start(self.scan_slider_skip_tsz, False, False, 0)
 		skip_box.pack_start(self.scan_slider_skip_eta, False, False, 0)
 		skip_box.pack_start(self.scan_slider_skip_del, False, False, 0)
@@ -902,12 +588,8 @@ class MyMainWindow(gtk.Window):
 		self.scan_slider_table.attach(self.scan_slider_scanNumber_txt, 0,1,1,2)
 		self.scan_slider_table.attach(self.scan_slider_spinButton, 1,2,1,2)
 		self.scan_slider_table.attach(self.scan_slider_imgSlider, 2,3,1,2)
-		#self.scan_slider_table.attach(self.scan_slider_skip_scans,0,1,2,3)
-		#self.scan_slider_table.attach(skip_box, 1,3,2,3)
-		self.scan_slider_table.attach(plot_roi_txt, 0,1,2,3)
-		self.scan_slider_table.attach(self.draw_roi_btn, 1,2,2,3)
-		self.scan_slider_table.attach(self.plot_3D_scan_btn, 2,3,2,3)
-		
+		self.scan_slider_table.attach(self.scan_slider_skip_scans,0,1,2,3)
+		self.scan_slider_table.attach(skip_box, 1,3,2,3)
 		self.scan_slider_skip_tsz.set_active(True)
 		self.scan_slider_skip_rien.set_active(True)
 		
@@ -999,31 +681,18 @@ class MyMainWindow(gtk.Window):
 		self.profiles_log_btn.connect("toggled",self.profiles_update)
 		self.profiles_export_data_btn = gtk.Button("Export data")
 		self.profiles_export_data_btn.connect("clicked",self.profiles_export)
-		integration_width = gtk.Label(" Profile integration width: ")
-		
-		self.integration_width = gtk.Entry()
-		self.integration_width.set_text("10")
-		self.integration_width.set_usize(40,0)
-		
-		self.tooltips.set_tip(self.integration_width,"Integration width in pixel. This is not applied to arbitrary profile")
 
 		self.profiles_option_box = gtk.HBox(False,0)
 		self.profiles_option_box.pack_start(self.profiles_log_btn, False, False, 0)
 		self.profiles_option_box.pack_start(self.profiles_export_data_btn, False, False, 0)
-		self.profiles_option_box.pack_start(integration_width, False,False,0)
-		self.profiles_option_box.pack_start(self.integration_width,False,False,0)
 		### Figure of profiles plot
 		self.fig_profiles = Figure()
-		self.profiles_fringes = []
-		self.profiles_ax2 = self.fig_profiles.add_subplot(211)
-		self.profiles_ax2.set_xlabel("X profile", size=14)
-		self.profiles_ax1 = self.fig_profiles.add_subplot(212)
-		self.profiles_ax1.set_xlabel("Y profile", size=14)
-		
-		self.fig_profiles.subplots_adjust(bottom=0.1, top=0.95, hspace=0.30)
+		self.profiles_ax1 = self.fig_profiles.add_subplot(211)
+		self.profiles_ax1.set_title("Y profile", size=12)
+		self.profiles_ax2 = self.fig_profiles.add_subplot(212)
+		self.profiles_ax2.set_xlabel("X profile", size=12)
 		self.profiles_canvas = FigureCanvas(self.fig_profiles)
 		self.profiles_canvas.set_size_request(450,50)
-		self.profiles_canvas.mpl_connect("button_press_event",self.profile_press)
 		self.profiles_navBar = NavigationToolbar(self.profiles_canvas, self)
 		self.cursor_pro1 = Cursor(self.profiles_ax1, color='k', linewidth=1, useblit=True)
 		self.cursor_pro2 = Cursor(self.profiles_ax2, color='k', linewidth=1, useblit=True)
@@ -1058,25 +727,25 @@ class MyMainWindow(gtk.Window):
 		self.tth_fitted_mu = gtk.Label()
 
 		self.fit_results_table.attach(title,0,3,0,1)
-		self.fit_results_table.attach(self.chi_title,2,3,1,2)
-		self.fit_results_table.attach(self.tth_title,1,2,1,2)
+		self.fit_results_table.attach(self.chi_title,1,2,1,2)
+		self.fit_results_table.attach(self.tth_title,2,3,1,2)
 		self.fit_results_table.attach(y0,0,1,2,3)
 		self.fit_results_table.attach(xc,0,1,3,4)
 		self.fit_results_table.attach(A,0,1,4,5)
 		self.fit_results_table.attach(w,0,1,5,6)
 		self.fit_results_table.attach(mu,0,1,6,7)
 
-		self.fit_results_table.attach(self.chi_fitted_y0,2,3,2,3)
-		self.fit_results_table.attach(self.chi_fitted_xc,2,3,3,4)
-		self.fit_results_table.attach(self.chi_fitted_A,2,3,4,5)
-		self.fit_results_table.attach(self.chi_fitted_w,2,3,5,6)
-		self.fit_results_table.attach(self.chi_fitted_mu,2,3,6,7)
+		self.fit_results_table.attach(self.chi_fitted_y0,1,2,2,3)
+		self.fit_results_table.attach(self.chi_fitted_xc,1,2,3,4)
+		self.fit_results_table.attach(self.chi_fitted_A,1,2,4,5)
+		self.fit_results_table.attach(self.chi_fitted_w,1,2,5,6)
+		self.fit_results_table.attach(self.chi_fitted_mu,1,2,6,7)
 
-		self.fit_results_table.attach(self.tth_fitted_y0,1,2,2,3)
-		self.fit_results_table.attach(self.tth_fitted_xc,1,2,3,4)
-		self.fit_results_table.attach(self.tth_fitted_A,1,2,4,5)
-		self.fit_results_table.attach(self.tth_fitted_w,1,2,5,6)
-		self.fit_results_table.attach(self.tth_fitted_mu,1,2,6,7)
+		self.fit_results_table.attach(self.tth_fitted_y0,2,3,2,3)
+		self.fit_results_table.attach(self.tth_fitted_xc,2,3,3,4)
+		self.fit_results_table.attach(self.tth_fitted_A,2,3,4,5)
+		self.fit_results_table.attach(self.tth_fitted_w,2,3,5,6)
+		self.fit_results_table.attach(self.tth_fitted_mu,2,3,6,7)
 
 		#### PACK the right panel
 		self.right_panel.pack_start(self.option_table, False, False, 0)
@@ -1491,24 +1160,13 @@ class MyMainWindow(gtk.Window):
 
 ######################################## Definitions ########################################################################
 	def pro_format_coord(self,x,y):
-		if abs(x)>10000:
-			fmtx = '%.2e'%x
-		else:
-			fmtx = '%.2f'%x
-		if abs(y)>10000:
-			fmty = '%.2e'%y
-		else:
-			fmty = '%.2f'%y
-		form = 'x=%s, y=%s'%(str(fmtx),str(fmty))
-		return form
+		return 'x=%.4f, y=%.1f'%(x,y)
 
 	def init_image(self):
 		self.ax.clear()
 		self.cax.clear()
 		self.cax2.clear()
 		self.ax.add_patch(self.rect)
-		self.ax.add_patch(self.roi_rect)
-		self.IMG_ZOOMED = False
 		#if self.detector_type=="S70":
 			#self.img = self.ax.imshow(self.data,origin='upper',vmin=self.vmin, vmax=self.vmax, cmap=jet, interpolation='nearest',aspect='auto', extent=self.MAIN_EXTENT)
 		#else:
@@ -1587,7 +1245,7 @@ class MyMainWindow(gtk.Window):
 		dialog.add_filter(filtre)
 		response = dialog.run()
 		if response == gtk.RESPONSE_OK:
-			self.ponifile = dialog.get_filename().decode('utf8')
+			self.ponifile = dialog.get_filename()
 			print "Calibration file is: ",self.ponifile
 			self.azimuthalIntegration = pyFAI.load(self.ponifile)
 
@@ -1596,61 +1254,54 @@ class MyMainWindow(gtk.Window):
 			print "is calibrated? ",self.calibrated
 			self.geometry_manual.set_active(False)
 			self.canvas.draw()
-			s = os.path.basename(self.ponifile)
+			s = self.ponifile.split("/")[-1]
 			self.popup_info("info","This detector is calibrated with the PONI file %s!!!"%s)
 		else:
 			pass
 		dialog.destroy()
 	
 	def manual_calibration(self,widget):
-		"""Checking input data for geometry setup
-		"""
+		#***** Check input data
+		#if self.geometry_manual.get_active():
+			
 		distance = self.geometry_distance.get_text()
 		energy   = self.geometry_energy.get_text()
 		direct_beam = self.geometry_direct_beam.get_text()
-		self.distance = float(distance)
-		self.energy   = float(energy)
+		distance = float(distance)
+		energy   = float(energy)
 		direct_beam = direct_beam.split(",")
-		self.direct_beam = [float(direct_beam[0]),float(direct_beam[1])]
+		direct_beam = [float(direct_beam[0]),float(direct_beam[1])]
 		from scipy.constants import h,c,e
-		poni1 = self.direct_beam[1]*_PIXEL_SIZE
-		poni2 = self.direct_beam[0]*_PIXEL_SIZE
-		self.wavelength = h*c/e/self.energy
+		poni1 = direct_beam[1]*_PIXEL_SIZE
+		poni2 = direct_beam[0]*_PIXEL_SIZE
+		wavelength = h*c/e/energy
 		
-		#qconv = xrayutilities.experiment.QConversion(['y-','x-','z+'],['z+','y-'],[1,0,0])
+		qconv = xrayutilities.experiment.QConversion(['y-','x-','z+'],['z+','y-'],[1,0,0])
 		
 		if self.UB_MATRIX_LOAD:
-			self.experiment = xrayutilities.HXRD([1,0,0],[0,0,1], en=self.energy, qconv=self.qconv)
+			self.experiment = xrayutilities.HXRD([1,0,0],[0,0,1], en=energy, qconv=qconv)
 		else:
 			substrate = self.geometry_substrate.get_active_text()
 			if substrate == "-- other":
-				if self.geometry_substrate_other.get_text() == "":
-					self.experiment = xrayutilities.HXRD([1,0,0],[0,0,1], en=self.energy, qconv=self.qconv)
-					self.has_substrate = False
-				else:
-					self.has_substrate = True
-					substrate = self.geometry_substrate_other.get_text()
+				substrate = self.geometry_substrate_other.get_text()
+			command = "self.substrate = xrayutilities.materials."+substrate
+			exec(command)
+			in_plane = self.geometry_substrate_inplane.get_text()
+			out_of_plane = self.geometry_substrate_outplane.get_text()
+			if in_plane != "" and out_of_plane != "":
+				in_plane = in_plane.split()
+				self.in_plane = N.asarray([int(i) for i in in_plane])
+				out_of_plane = out_of_plane.split()
+				self.out_of_plane = N.asarray([int(i) for i in out_of_plane])
+				self.has_orientation_matrix = True
+				self.experiment = xrayutilities.HXRD(self.substrate.Q(self.in_plane),self.substrate.Q(self.out_of_plane), en=energy, qconv=qconv)
 			else:
-				self.has_substrate = True
-			if self.has_substrate:
-				command = "self.substrate = xrayutilities.materials."+substrate
-				exec(command)
-				in_plane = self.geometry_substrate_inplane.get_text()
-				out_of_plane = self.geometry_substrate_outplane.get_text()
-				if in_plane != "" and out_of_plane != "":
-					in_plane = in_plane.split()
-					self.in_plane = N.asarray([int(i) for i in in_plane])
-					out_of_plane = out_of_plane.split()
-					self.out_of_plane = N.asarray([int(i) for i in out_of_plane])
-					#self.has_orientation_matrix = True
-					self.experiment = xrayutilities.HXRD(self.substrate.Q(self.in_plane),self.substrate.Q(self.out_of_plane), en=self.energy, qconv=self.qconv)
-				else:
-					#self.has_orientation_matrix = False
-					self.experiment = xrayutilities.HXRD(self.substrate.Q(1,0,0),self.substrate.Q(0,0,1), en=self.energy, qconv=self.qconv)
-					
+				self.has_orientation_matrix = False
+				self.experiment = xrayutilities.HXRD(self.substrate.Q(1,0,0),self.substrate.Q(0,0,1), en=energy, qconv=qconv)
+			
 		
 			
-		self.azimuthalIntegration = pyFAI.azimuthalIntegrator.AzimuthalIntegrator(dist=self.distance,
+		self.azimuthalIntegration = pyFAI.azimuthalIntegrator.AzimuthalIntegrator(dist=distance,
 																					poni1=poni1,
 																					poni2=poni2,
 																					rot1=None,
@@ -1658,21 +1309,20 @@ class MyMainWindow(gtk.Window):
 																					rot3=None,
 																					pixel1=_PIXEL_SIZE,
 																					pixel2=_PIXEL_SIZE,
-																					wavelength=self.wavelength)
+																					wavelength=wavelength)
 		#self.experiment.Ang2Q.init_area('z+','y-', cch1=direct_beam[1], cch2=direct_beam[0], Nch1=Npx1,Nch2=Npx2, pwidth1=px1,pwidth2=px2, distance=distance, detrot=detrot, tiltazimuth=0, tilt=0)
 		
 		self.calibrated=True
 		self.calibrated_quantitative = False
-		MSSG = "Your parameters have been taken into account.\nEnergy = %s eV\nDistance = %s m\nDirect beam position: %s,%s\n"%(str(self.energy),str(self.distance),str(self.direct_beam[0]),str(self.direct_beam[1]))
+		MSSG = "Your parameters have been taken into account.\nEnergy = %s eV\nDistance = %s m\nDirect beam position: %s,%s\n"%(str(energy),str(distance),str(direct_beam[0]),str(direct_beam[1]))
 		if self.UB_MATRIX_LOAD:
-			MSSG+= "\nYou have imported a UB matrix. If you donot want to use this UB matrix anymore, click the browse button again.\n\nYour actual UB matrix is:\n%s"%str(self.UB_MATRIX)
+			MSSG+= "\nYou have imported a UB matrix"
 		else:
-			if self.has_substrate:
-				MSSG+= "\nYou do not have a UB matrix, you have to define your substrate material and it's orientation. This information will be considered to calculate the orientation matrix\n"
-				MSSG+= "\nYour actual choise:\nSubstrate material: %s\nIn-plane direction: %s\nOut-of-plane direction: %s"%(str(substrate), str(self.in_plane), str(self.out_of_plane))
-			else:
-				MSSG+= "\nYou donot have a UB matrix, nor a substrate. A UB equal to unity will be applied\n"
+			MSSG+= "\nYou do not have a UB matrix, you have to define your substrate material and it's orientation. This information will be considered to calculate the orientation matrix"
 		self.popup_info("info",MSSG)
+		#self.calculation_angular_coordinates()
+		#else:
+			#self.calibrated=False
 			
 	def calculation_angular_coordinates(self):
 		if self.detector_type=="D5":
@@ -1686,8 +1336,8 @@ class MyMainWindow(gtk.Window):
 			self.tableChi      = self.azimuthalIntegration.chiArray((120,578))
 			self.tableChi      = N.degrees(self.tableChi)-90
 		elif self.detector_type=="D1":
-			self.tableTwoTheta = self.azimuthalIntegration.twoThetaArray((self.Dim1,self.Dim2))
-			self.tableChi      = self.azimuthalIntegration.chiArray((self.Dim1,self.Dim2))
+			self.tableTwoTheta = self.azimuthalIntegration.twoThetaArray((577,913))
+			self.tableChi      = self.azimuthalIntegration.chiArray((577,913))
 			self.tableChi      = N.degrees(self.tableChi)-90
 
 			
@@ -1719,17 +1369,6 @@ class MyMainWindow(gtk.Window):
 		self.init_image()
 		self.canvas.draw()
 		return 0
-	
-	def set_manip(self,widget, manip_type):
-		if manip_type.upper()=="GONIO":
-			self.manipm.set_label("Gonio")
-			self.experiment_type = "GONIO"
-
-		elif manip_type.upper()=="GISAXS":
-			self.manipm.set_label("GISAXS")
-			self.experiment_type = "GISAXS"
-		self.canvas.draw()
-		return 0
 
 	def check_azimuthal_integrator(self):
 		if not self.calibrated_quantitative:
@@ -1755,27 +1394,10 @@ class MyMainWindow(gtk.Window):
 			self.DARK_CORRECTION = False
 		print "Use Dark image: ",self.DARK_CORRECTION
 		
-	def what_is_this_manip(self):
-		""" Check manip type by the spec file"""
-		kappapsic = re.compile(r'kappapsic')
-		fourc     = re.compile(r'kappa')
-		gisaxs    = re.compile(r'gisaxs')
-		saxsext   = re.compile(r'saxsext')
-		manip     = [kappapsic, fourc, gisaxs, saxsext]
-		manip_list= ['kappapsic', 'fourc', 'gisaxs', 'saxsext']
-		spec_file = os.path.basename(self.SPEC_FILE)
-		print "Spec file: ",spec_file
-		for m in range(len(manip)):
-			if manip[m].findall(spec_file) !=[]:
-				self.manip = manip_list[m]
-				break
-			else:
-				self.manip = "Unknown"
-		
-	def read_header(self,header):
+	def read_header(self):
 		if self.detector_type != "D1":
-			self.counter = get_counters(header)
-			self.motor = get_motors(header)
+			self.counter = get_counters(self.header)
+			self.motor = get_motors(self.header)
 			motor_mne = self.motor.keys()
 			if len(motor_mne)>1:
 				if 'xsamp' in motor_mne:
@@ -1784,8 +1406,8 @@ class MyMainWindow(gtk.Window):
 					self.manip = "kappapsic"
 				elif 'tth' in motor_mne:
 					self.manip = "fourc"
-				else:
-					self.manip = "Unknown"
+			else:
+				self.manip = "Unknown"
 			if self.manip == "kappapsic":
 				self.delta = self.motor['del']
 				self.eta   = self.motor['eta']
@@ -1795,7 +1417,7 @@ class MyMainWindow(gtk.Window):
 				self.mu    = self.motor['mu']
 				self.kphi  = self.motor['kphi']
 			
-			elif self.manip == "fourc":
+			if self.manip == "fourc":
 				self.delta = self.motor['tth']
 				self.eta   = self.motor['th']
 				self.chi   = self.motor['chi']
@@ -1810,13 +1432,10 @@ class MyMainWindow(gtk.Window):
 				self.phi = self.kphi = self.chi = self.nu = self.mu = 0			
 			self.count_time = self.counter['sec']
 		else:
-			self.del_pos_txt.set_text("For instant the header of D1 detector is not stored in the image. We have to write some code to read motor info from spec file")
-			self.manip = "Unknown"
-			self.count_time=0
-			#pass
+			pass
 		
 	def on_changed_edf(self,widget,row,col):
-		""" Change EDF by double clicking on the file name """
+
 		self.clear_notes()
 		self.init_image()
 		model = widget.get_model()
@@ -1839,12 +1458,10 @@ class MyMainWindow(gtk.Window):
 		### Data Loading #########
 		self.fabioIMG = fabio.open(self.edf)
 		self.header = self.fabioIMG.header
-		self.Dim1 = self.fabioIMG.data.shape[0]
-		self.Dim2 = self.fabioIMG.data.shape[1]
 		if self.detector_type == "S70":
 			self.fabioIMG.data = N.flipud(self.fabioIMG.data)
 		#print self.header
-		self.read_header(self.header)
+		self.read_header()
 		if self.manip == "kappapsic":
 			self.del_pos_txt.set_text("Del: ")
 			self.eta_pos_txt.set_text("Eta: ")
@@ -1862,7 +1479,7 @@ class MyMainWindow(gtk.Window):
 			self.nu_pos.set_text("%.2f"%self.nu)
 			self.mu_pos.set_text("%.2f"%self.mu)
 			
-		elif self.manip == "fourc":
+		if self.manip == "fourc":
 			self.del_pos_txt.set_text("tth: ")
 			self.eta_pos_txt.set_text("th: ")
 			self.phi_pos_txt.set_text("phi: ")
@@ -1897,8 +1514,8 @@ class MyMainWindow(gtk.Window):
 			self.nu_pos.set_text("%.2f"%self.motor[moteurs[5]])
 			self.mu_pos.set_text("%.2f"%self.motor[moteurs[6]])
 				
-		self.time_pos_txt.set_text("Seconds: ")
-		self.time_pos.set_text("%d"%self.count_time)
+			self.time_pos_txt.set_text("Seconds: ")
+			self.time_pos.set_text("%d"%self.count_time)
 		gc.collect() # Clear unused variables
 		#self.data = self.fabioIMG.data
 		self.plot_data()
@@ -1921,7 +1538,7 @@ class MyMainWindow(gtk.Window):
 		dialog.set_current_folder(self.current_folder)
 		response = dialog.run()
 		if response == gtk.RESPONSE_OK:
-			file_choosen = dialog.get_filename().decode('utf8')
+			file_choosen = dialog.get_filename()
 			self.scan_slider_path.set_text(file_choosen)
 			self.SPEC_FILE = file_choosen
 		else:
@@ -1929,10 +1546,7 @@ class MyMainWindow(gtk.Window):
 		dialog.destroy()
 		while gtk.events_pending():
 			gtk.main_iteration()
-		if self.detector_type=="D1":
-			self.SPEC_DATA = Read_Spec_D1(self.SPEC_FILE)
-		else:
-			self.SPEC_DATA = xrayutilities.io.SPECFile(self.SPEC_FILE)
+		self.SPEC_DATA = xrayutilities.io.SPECFile(self.SPEC_FILE)
 		self.update_spec_data()
 		
 		return
@@ -1943,34 +1557,26 @@ class MyMainWindow(gtk.Window):
 			dialog.set_current_folder(self.current_folder)
 			response = dialog.run()
 			if response == gtk.RESPONSE_OK:
-				file_choosen = dialog.get_filename().decode('utf8')
+				file_choosen = dialog.get_filename()
 				self.UB_FILE = file_choosen
 			else:
 				pass
 			dialog.destroy()
 			self.UB_MATRIX = N.loadtxt(self.UB_FILE)
 			self.UB_MATRIX_LOAD=True
-			self.geometry_browse_UB.set_label("UB imported")
+			self.geometry_browse_UB.set_text("UB imported")
 			print "UB matrix file: ",self.UB_FILE
 			print "UB matrix: \n",self.UB_MATRIX
 		else:
 			self.UB_MATRIX_LOAD = False
-			self.geometry_browse_UB.set_label("Browse UB file")
+			self.geometry_browse_UB.set_text("Browse UB file")
 		return
 		
 	def update_spec_data(self):
 		self.SPEC_IMG = []
 		self.SPEC_SCAN_LIST = self.SPEC_DATA.scan_list
-		for i in range(len(_SPEC_IMG_COL)):
-			if _SPEC_IMG_COL[i] not in self.SPEC_SCAN_LIST[0].colnames:
-				img_col_found = False
-				continue
-			else:
-				img_col_found = True
-				self.IMG_COL  = _SPEC_IMG_COL[i]
-				break
-		if not img_col_found:
-			self.popup_info("error","Spec file does not containt the image field. If image coloumn is not 'img' or 'xpadNum' please add this name in the _SPEC_IMG_COL variable (line N# 63).")	
+		if _SPEC_IMG_COL not in self.SPEC_SCAN_LIST[0].colnames:
+			self.popup_info("error","Spec file does not containt the image field. The default image coloumn is 'img'")
 			return
 		else:
 			first_scan_num = self.SPEC_SCAN_LIST[0].nr
@@ -1986,7 +1592,7 @@ class MyMainWindow(gtk.Window):
 				self.SPEC_ALL_MOTORS_LIST.append(self.SPEC_SCAN_LIST[i].colnames[0].upper())
 				if self.SPEC_SCAN_LIST[i].scan_status == 'OK':
 					self.SPEC_SCAN_LIST[i].ReadData()
-					this_img_list = self.SPEC_SCAN_LIST[i].data[self.IMG_COL]
+					this_img_list = self.SPEC_SCAN_LIST[i].data[_SPEC_IMG_COL]
 					this_img_list = this_img_list.astype('int')
 				else:
 					this_img_list = []
@@ -1998,6 +1604,7 @@ class MyMainWindow(gtk.Window):
 			#print "SPEC_IMG len: ",len(self.SPEC_IMG)
 			#print "SPEC SCAN NUM LIST: ",self.SPEC_SCAN_NUM_LIST
 			self.check_and_update_scan_slider()
+		#return
 	
 	def check_skipped_motors(self):
 		self.SPEC_SKIPPED_MOTORS = []
@@ -2021,9 +1628,12 @@ class MyMainWindow(gtk.Window):
 			self.SPEC_SKIPPED_MOTORS.append("Roy".upper())
 		if self.scan_slider_skip_rien.get_active():
 			self.SPEC_SKIPPED_MOTORS.append("Rien".upper())
+		#return
+		
 	
 	def update_scan_slider(self,widget):
 		self.update_scan_slider_now()
+		#return
 	
 	def update_scan_slider_now(self):
 		actual_scan_num = self.scan_slider_spinButton.get_value()
@@ -2045,7 +1655,7 @@ class MyMainWindow(gtk.Window):
 		
 		#self.SPEC_ACTUAL_SCAN.ReadData()#All scan are Data Ready
 		#self.SPEC_ACTUAL_SCAN_IMG = []
-		self.SPEC_ACTUAL_SCAN_IMG = self.SPEC_ACTUAL_SCAN.data[self.IMG_COL]
+		self.SPEC_ACTUAL_SCAN_IMG = self.SPEC_ACTUAL_SCAN.data[_SPEC_IMG_COL]
 		self.SPEC_ACTUAL_SCAN_IMG = self.SPEC_ACTUAL_SCAN_IMG.astype('int')
 		#print "Actual scan images: ",self.SPEC_ACTUAL_SCAN_IMG
 		actual_img_num  = self.SELECTED_IMG_NUM
@@ -2078,7 +1688,7 @@ class MyMainWindow(gtk.Window):
 		
 		img_list = self.SPEC_ACTUAL_SCAN_IMG_NAMES
 		#print "Actual images: ",img_list
-		print "Loading data for this scan %d ..."%self.SPEC_ACTUAL_SCAN.nr
+		print "Getting data for this scan %d ..."%self.SPEC_ACTUAL_SCAN.nr
 		for j in range(len(img_list)):
 			#print "Getting ",img_list[j]
 			edf = join(self.edf_folder, img_list[j])
@@ -2099,13 +1709,13 @@ class MyMainWindow(gtk.Window):
 			self.init_image()
 		return
 	
+	#def check_and_update_spin_button(self):
+		
 	def check_and_update_scan_slider(self):
 		"""Get the actual scan object corresponding to the scan number and image number selected"""
 		scan_found = False
 		if self.DATA_IS_LOADED and self.SELECTED_IMG_NUM != None:
 			self.check_skipped_motors()#To get the list of skipped motors
-			#This_Prefix = self.edf_choosen.split("_")[0]
-			#prefix = re.compile(This_Prefix)
 			for i in range(len(self.SPEC_IMG)):
 				if (self.SELECTED_IMG_NUM in self.SPEC_IMG[i]) and (self.SPEC_SCAN_LIST[i].colnames[0].upper() not in self.SPEC_SKIPPED_MOTORS):
 					self.SPEC_ACTUAL_SCAN = self.SPEC_SCAN_LIST[i]
@@ -2121,8 +1731,6 @@ class MyMainWindow(gtk.Window):
 		if scan_found:	
 			self.scan_slider_spinButton.set_value(self.SPEC_ACTUAL_SCAN.nr)#This will call the update scan slider too
 			#self.update_scan_slider_now()#NOT NECESSARY
-			self.SCAN_ROI_INTEGRATION_X =[]
-			self.SCAN_ROI_INTEGRATION_Y =[]
 			return
 		else:
 			return
@@ -2131,73 +1739,20 @@ class MyMainWindow(gtk.Window):
 	def slider_plot_scan(self, widget):
 		self.plot_scan()
 	
-
-	def get_roi_data(self):
-		if self.detector_space_btn.get_active():
-			r = sorted([int(self.ROI_y0), int(self.ROI_y1)])
-			c = sorted([int(self.ROI_x0), int(self.ROI_x1)])
-			
-		elif self.tth_chi_space_btn.get_active():
-			x1 = get_index(self.tth_pyFAI, self.ROI_x0)
-			x2 = get_index(self.tth_pyFAI, self.ROI_x1)
-			y1 = get_index(self.chi_pyFAI, self.ROI_y0)
-			y2 = get_index(self.chi_pyFAI, self.ROI_y1)
-			r  = sorted([y1,y2])
-			c  = sorted([x1,x2])
-		elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active():
-			x1 = get_index(self.QGridder.xaxis, self.ROI_x0)
-			x2 = get_index(self.QGridder.xaxis, self.ROI_x1)
-			y1 = get_index(self.QGridder.yaxis, self.ROI_y0)
-			y2 = get_index(self.QGridder.yaxis, self.ROI_y1)
-			r  = sorted([y1,y2])
-			c  = sorted([x1,x2])
-		return self.data[r[0]:r[1],c[0]:c[1]].sum()
-
-	def plot_roi(self):
-		self.profiles_ax1.cla()
-		#self.profiles_ax1.format_coord = self.pro_format_coord
-		#self.profiles_ax2.format_coord = self.pro_format_coord
-		self.profiles_ax1.plot(self.SCAN_ROI_INTEGRATION_X, self.SCAN_ROI_INTEGRATION_Y, "r-o", lw=2)
-		self.profiles_ax1.set_xlabel(self.SPEC_SCAN_MOTOR_NAME, size=14)
-		self.profiles_ax1.set_ylabel("ROI integration", size=14)
-		self.profiles_refresh()
-		self.canvas.draw()
-		
-	def read_scan_header_D1(self, img_index, scan_motor):
-		#self.what_is_this_manip()
-		motors = self.SPEC_ACTUAL_SCAN.motors
-		self.count_time = self.SPEC_ACTUAL_SCAN.count_time
-		
-		this_scan_motor_value = self.SPEC_ACTUAL_SCAN.data[scan_motor][img_index]
-		mot_del  = re.compile(r'DEL')
-		mot_eta  = re.compile(r'ETA')
-		mot_chi  = re.compile(r'CHI')
-		mot_phi  = re.compile(r'PHI')
-		mot_nu  = re.compile(r'NU')
-		mot_mu  = re.compile(r'MU')
-		mot_list = [mot_del,mot_eta,mot_chi,mot_phi,mot_nu,mot_mu]
-		real_mot_list = ['del','eta','chi','phi','nu','mu']
-		for i in range(len(mot_list)):
-			if mot_list[i].findall(scan_motor.upper())!=[]:
-				motors[real_mot_list[i]] = this_scan_motor_value
-		self.delta = motors['del']
-		self.eta   = motors['eta']
-		self.chi   = motors['chi']
-		self.phi   = motors['phi']
-		self.nu    = motors['nu']
-		self.mu    = motors['mu']
+	def update_integrator(self):
+		self.read_header()
+		self.check_azimuthal_integrator()
+		return
 	
 	def plot_scan(self):
-		""" Plot when the scan slider changes """
+		#try:
 		if len(self.SPEC_ACTUAL_SCAN_DATA)>0:
 			img_num = self.scan_slider_imgSlider.get_value()
 			img_num = int(img_num)
 			#print "Image number: ",img_num
-				
 			img_index = N.where(self.SPEC_ACTUAL_SCAN_IMG == img_num)
 			img_index = img_index[0][0]
 			self.data = self.SPEC_ACTUAL_SCAN_DATA[img_index]
-			
 			self.header = self.SPEC_ACTUAL_SCAN_HEADER[img_index]
 			if self.adj_btn.get_active():
 				if self.data.shape == (960,560) or self.data.shape == (120,560):
@@ -2207,216 +1762,35 @@ class MyMainWindow(gtk.Window):
 			this_title = self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]
 			scan_motor = self.SPEC_SCAN_MOTOR_NAME
 			this_motor_value = self.SPEC_SCAN_MOTOR_DATA[img_index]
-			
 			this_title = this_title +" - %s = %s"%(scan_motor, this_motor_value)
 			self.MAIN_TITLE.set_text(this_title)
 			
-			if self.detector_type =="D1":
-				self.read_scan_header_D1(img_index, scan_motor)
-			else:
-				self.read_header(self.header)
-			if self.detector_space_btn.get_active():
-				self.MAIN_EXTENT = (0, self.data.shape[1], 0, self.data.shape[0])
-			elif self.tth_chi_space_btn.get_active():
+			self.update_integrator()
+			if self.tth_chi_space_btn.get_active():
 				self.Angular_space_plot()
 			elif self.hk_space_btn.get_active():
 				self.Reciprocal_space_plot(space="HK")
-				#print "X shape: ",self.QGridder.xaxis.shape
 			elif self.hl_space_btn.get_active():
 				self.Reciprocal_space_plot(space="HL")
 			elif self.kl_space_btn.get_active():
 				self.Reciprocal_space_plot(space="KL")
 			
-			#print "Data shape: ",self.data.shape
-			if self.ROI_ON and self.ROI_DRAWN:
-				self.SCAN_ROI_INTEGRATION_X.append(this_motor_value)
-				roi_data = self.get_roi_data()
-				self.SCAN_ROI_INTEGRATION_Y.append(roi_data)
-				self.plot_roi()
-			self.scale_plot()
-			if img_num == self.SPEC_ACTUAL_SCAN_IMG.min() or img_num == self.SPEC_ACTUAL_SCAN_IMG.max():
-				self.SCAN_ROI_INTEGRATION_X = []
-				self.SCAN_ROI_INTEGRATION_Y = []
 			
+			self.scale_plot()
 			self.img.set_extent(self.MAIN_EXTENT)
 			self.slider_update()
-						
+			#self.canvas.draw()
+			
 			self.SELECTED_IMG_NUM = img_num
 			if isfile(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index])):
 				self.fabioIMG = fabio.open(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]))
 			else:
 				pass
-	def plot_3D_scan(self,w):
-		""" popup a mayavi window to visualize the 3D data """
-		self.what_is_this_manip()
-		print "Manip ",self.manip
-		DATA = []
-		scan_motors = {}
-		cch1 = self.direct_beam[1]
-		cch2 = self.direct_beam[0]
-		if self.detector_type=="D5":
-			Nch1 = 578
-			Nch2 = 1148
-		elif self.detector_type=="S70":
-			Nch1 = 120
-			Nch2 = 578
-		elif self.detector_type == "D1":
-			dim = self.SPEC_ACTUAL_SCAN_DATA[0].shape
-			Nch1 = dim[0]
-			Nch2 = dim[1]
-		# reduce data: number of pixels to average in each detector direction
-		default_nav = [5,5]
-		default_roi = [0,Nch1, 0,Nch2]  # region of interest on the detector
-		contour_level = 30
-		if self.detector_type == "D5":
-			contour_level = 10
 		
-		if self.detector_type=="S70":
-			default_nav = [1,1]
-		if self.detector_space_btn.get_active() and self.ROI_ON and self.ROI_DRAWN:
-			r = sorted([int(self.ROI_y0), int(self.ROI_y1)])
-			c = sorted([int(self.ROI_x0), int(self.ROI_x1)])
-			default_roi = [r[0],r[1],c[0],c[1]]
-			
-		if self.manip == "kappapsic":
-			th_motor = 'eta'
-			tth_motor= 'del'
-		elif self.manip == 'fourc':
-			th_motor = 'th'
-			tth_motor= 'tth'
-		scan_motors[tth_motor] = []
-		scan_motors[th_motor]  = []
-		scan_motors['chi']     = []
-		scan_motors['phi']     = []
-		scan_motors['nu']      = []
-		if self.detector_type != "D1":
-			for i in range(len(self.SPEC_ACTUAL_SCAN_DATA)):
-				print "Loading image: ",self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]
-				motor=get_motors(self.SPEC_ACTUAL_SCAN_HEADER[i])			
-				data = self.SPEC_ACTUAL_SCAN_DATA[i]
-				if data.shape == (960,560) or data.shape == (120,560):
-					data = self.correct_geometry(data)
-				if self.detector_type == "S70":
-					data = N.flipud(data)
-				
-				scan_motors[th_motor].append(motor[th_motor])
-				scan_motors['chi'].append(motor['chi'])
-				scan_motors['phi'].append(motor['phi'])
-				scan_motors['nu'].append(motor['nu'])
-				scan_motors[tth_motor].append(motor[tth_motor])
-				data = xrayutilities.blockAverage2D(data, default_nav[0], default_nav[1], roi=default_roi)
-				DATA.append(data)
-		else:
-			#if the detector is D1, old format of image and spec file is taken into account
-			scan_motor = self.SPEC_SCAN_MOTOR_NAME
-			scan_motor_values = self.SPEC_ACTUAL_SCAN.motors
-			_delta = scan_motor_values['del']
-			_eta   = scan_motor_values['eta']
-			_chi   = scan_motor_values['chi']
-			_phi   = scan_motor_values['phi']
-			_nu    = scan_motor_values['nu']
-			init_motors_pos = [_delta, _eta, _chi, _phi, _nu]
-			
-			mot_del  = re.compile(r'DEL')
-			mot_eta  = re.compile(r'ETA')
-			mot_chi  = re.compile(r'CHI')
-			mot_phi  = re.compile(r'PHI')
-			mot_nu  = re.compile(r'NU')
-			mot_list = [mot_del,mot_eta,mot_chi,mot_phi,mot_nu]
-			real_mot_list = [tth_motor,th_motor,'chi','phi','nu']
-			for i in range(len(mot_list)):
-				if mot_list[i].findall(scan_motor.upper())!=[]:
-					scan_motors[real_mot_list[i]] = self.SPEC_SCAN_MOTOR_DATA
-					real_mot_list.pop(i)#Remove the scan motor from the motor list
-					init_motors_pos.pop(i)
-					break
-				else:
-					continue
-			
-			for i in range(len(real_mot_list)):
-				scan_motors[real_mot_list[i]] = N.ones(shape=self.SPEC_SCAN_MOTOR_DATA.shape)*init_motors_pos[i]
-			
-			bad_images = []#For D1 detector, sometime the recorded images suffer from cosmic rays which pruduce bad images
-			for i in range(len(self.SPEC_ACTUAL_SCAN_DATA)):
-				print "Loading image: ",self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]
-				if os.path.getsize(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]))<1.5e6:
-					bad_images.append(i)
-					print "BAD IMAGE ",self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]
-					continue
-				else:
-					data = self.SPEC_ACTUAL_SCAN_DATA[i]
-					data = xrayutilities.blockAverage2D(data, default_nav[0], default_nav[1], roi=default_roi)
-					DATA.append(data)
-				
-				
-		print "Data processing ..."
-		DATA = N.asarray(DATA)
-		th   = N.asarray(scan_motors[th_motor])
-		tth  = N.asarray(scan_motors[tth_motor])
-		chi  = 90-N.asarray(scan_motors['chi'])
-		phi  = N.asarray(scan_motors['phi'])
-		nu   = N.asarray(scan_motors['nu'])
-		if self.detector_type=="D1":
-			phi = N.delete(phi,bad_images)
-			tth = N.delete(tth, bad_images)
-			chi = N.delete(chi,bad_images)
-			th  = N.delete(th, bad_images)
-			nu  = N.delete(nu,bad_images)
-		if self.manip == "gisaxs" or self.manip == "saxsext" or self.experiment_type=="GISAXS":
-			tth = tth * 0.
-			nu  = nu * 0.
-		this_experiment = self.experiment
-		this_experiment.Ang2Q.init_area('z+','y-', cch1=cch1, cch2=cch2, Nch1=Nch1,Nch2=Nch2, 
-								  pwidth1=_PIXEL_SIZE,pwidth2=_PIXEL_SIZE, distance=self.distance, 
-								  Nav=default_nav, roi=default_roi)
-		if self.UB_MATRIX_LOAD:
-			h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area', U=self.UB_MATRIX)
-		else:
-			if self.has_substrate:
-				h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area', mat=self.substrate)
-			else:
-				h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area')
-		nx = 80
-		ny = 80
-		nz = 80
-		gridder = xrayutilities.Gridder3D(nx,ny,nz)
-		gridder(h,k,l,DATA)
-		h,k,l = N.mgrid[gridder.xaxis.min():gridder.xaxis.max():1j*nx,
-							gridder.yaxis.min():gridder.yaxis.max():1j*ny,
-							gridder.zaxis.min():gridder.zaxis.max():1j*nz]
-		DATA  = gridder.data
-		maxint= N.log10(DATA.max())
-		DATA  = xrayutilities.maplog(DATA,maxint*0.5,1)
-		print "Plotting 3D image ..."
-		mlab.figure()
-		#mlab.contour3d(h,k,l,DATA,contours=50,opacity=0.5)
-		src  = mlab.pipeline.scalar_field(DATA)
-		src2 = mlab.pipeline.set_active_attribute(src,point_scalars='scalar')
-		mlab.pipeline.contour_surface(src2,contours=contour_level,opacity=0.5)
-
-		mlab.outline()
-		mlab.axes(nb_labels=5, ranges=(h.min(),h.max(),k.min(),k.max(),l.min(),l.max()), xlabel='H', ylabel='K', zlabel='L')
-		mlab.colorbar(title="log(intensity)", orientation="vertical")
-		mlab.show()
-		mlab.close(all=True)
-		gc.collect()
+		#except:
+			#pass
+		#return
 	
-	def get_UB_from_spec(self,actual_scan):
-		header = actual_scan.header
-		ub     = []
-		for h in header:
-			if h.startswith("#G3"):
-				h = h.split()
-				h = h[1:]
-				for i in range(len(h)):
-					ub.append(float(h[i]))
-				ub = N.asarray(ub)
-				ub = ub.reshape((3,3))
-				return ub
-			else:
-				continue
-			
-				
 	def change_scale(self,button, data):
 		if button.get_active():
 			button.set_label("Linear scale")
@@ -2510,12 +1884,8 @@ class MyMainWindow(gtk.Window):
 			
 			#self.ax.relim()
 			#self.img.set_extent(self.MAIN_EXTENT)#******* RECHECK THIS FOR 2THETA-CHI
-			if self.IMG_ZOOMED == True:
-				self.ax.set_xlim(self.ZOOM_EXTENT[0], self.ZOOM_EXTENT[1])
-				self.ax.set_ylim(self.ZOOM_EXTENT[2], self.ZOOM_EXTENT[3])
-			else:
-				self.ax.set_xlim(self.MAIN_EXTENT[0], self.MAIN_EXTENT[1])
-				self.ax.set_ylim(self.MAIN_EXTENT[2], self.MAIN_EXTENT[3])
+			self.ax.set_xlim(self.MAIN_EXTENT[0], self.MAIN_EXTENT[1])
+			self.ax.set_ylim(self.MAIN_EXTENT[2], self.MAIN_EXTENT[3])
 			self.ax.relim()
 			self.canvas.draw()
 			#self.ax.figure.canvas.draw_idle()
@@ -2533,7 +1903,6 @@ class MyMainWindow(gtk.Window):
 			#self.pole_canvas.draw()
     
 	def detector_disposition(self,widget):
-		""" Set detector vertically or horizontally """
 		#data = self.data.copy()
 		if self.detector_disposition_horizontal.get_active():
 			self.horizontal_detector = True
@@ -2572,7 +1941,7 @@ class MyMainWindow(gtk.Window):
 		x = event.xdata
 		y = event.ydata
 		self.check_azimuthal_integrator()
-		chi = self.tableChi[y,x]# -90.#+ self.chi
+		chi = self.tableChi[y,x] -90.#+ self.chi
 		tth = self.tableTwoTheta[y,x]
 		d   = self.table_dSpace[y,x]
 		return chi, tth, d
@@ -2610,7 +1979,6 @@ class MyMainWindow(gtk.Window):
 			elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active():
 				x = get_index(self.QGridder.xaxis, xdata)
 				y = get_index(self.QGridder.yaxis, ydata)
-				#print "x=%d y=%d"%(x,y)
 				zdata = self.data[y,x]
 			if self.detector_space_btn.get_active():
 				self.x_pos.set_text("%d"%xdata)
@@ -2621,26 +1989,10 @@ class MyMainWindow(gtk.Window):
 			self.z_pos.set_text("%d"%zdata)
 			
 			if self.show_chi_delta_flag == True:
-				if self.detector_space_btn.get_active():
-					chi,tth,d = self.calcul_chi_2theta_d(event)
-					self.show_chi_txt.set_text("Chi = %.2f"%chi)
-					self.show_delta_txt.set_text("2Theta = %.2f"%tth)
-					self.show_d_txt.set_text("d = %.4f A"%d)
-				elif self.tth_chi_space_btn.get_active():
-					tth = event.xdata
-					chi = event.ydata
-					d   = self.azimuthalIntegration.wavelength / (2*N.sin(N.radians(tth/2.0))) * 1e10 #d in Angstrom
-					self.show_chi_txt.set_text("Chi = %.2f"%chi)
-					self.show_delta_txt.set_text("2Theta = %.2f"%tth)
-					self.show_d_txt.set_text("d = %.4f A"%d)
-				#elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active():
-					#h = event.xdata
-					#k = event.ydata
-					#l = 
-					
-					#self.show_chi_txt.set_text("H = %.2f"%h)
-					#self.show_delta_txt.set_text("K = %.2f"%k)
-					#self.show_d_txt.set_text("L = %.2f"%l)
+				chi,tth,d = self.calcul_chi_2theta_d(event)
+				self.show_chi_txt.set_text("Chi = %.2f"%chi)
+				self.show_delta_txt.set_text("2Theta = %.2f"%tth)
+				self.show_d_txt.set_text("d = %.4f A"%d)
 	
 	def zoom_on(self,widget):
 		"""For the Zoom button"""
@@ -2653,7 +2005,6 @@ class MyMainWindow(gtk.Window):
 			self.canvas.window.set_cursor(None)
 			self.cursor.visible = True
 
-		
 	def zoom_image(self):
 		tmp_x = [self.x0, self.x1]
 		tmp_y = [self.y0, self.y1]
@@ -2679,10 +2030,8 @@ class MyMainWindow(gtk.Window):
 		#self.img.set_extent(self.MAIN_EXTENT)
 		#self.ax.set_xlim(self.MAIN_EXTENT[0], self.MAIN_EXTENT[1])
 		#self.ax.set_ylim(self.MAIN_EXTENT[2], self.MAIN_EXTENT[3])
-		self.IMG_ZOOMED = True
-		self.ZOOM_EXTENT = (extent_x0, extent_x1, extent_y0, extent_y1)
 		self.canvas.draw()
-		
+
 	def reset_scale(self,widget):
 		if self.linear_scale_btn.get_active():
 			self.vmin = 0
@@ -2693,11 +2042,7 @@ class MyMainWindow(gtk.Window):
 		self.slider_update()
 
 	def reset_image(self,widget):
-		self.Do_reset_image()
-		
-	def Do_reset_image(self):
 		"""For the Home button"""
-		self.IMG_ZOOMED = False
 		self.xDim0 = 0
 		self.xDim1 = self.data.shape[1]
 		self.yDim0 = 0
@@ -2739,7 +2084,7 @@ class MyMainWindow(gtk.Window):
 			#t = threading.Thread(target=self._thread_scanning,args=(main_dir,list_dir[i],))
 			#self.threads.append(t)
 			#t.start()
-			self._thread_scanning(main_dir,list_dir[i].decode('utf8'))
+			self._thread_scanning(main_dir,list_dir[i])
 
 		#gobject.timeout_add(200, self._callback)  # This will cause the main app to
 		#check every 200 ms if the threads are done.
@@ -2751,38 +2096,35 @@ class MyMainWindow(gtk.Window):
 	
 	def _thread_scanning(self,main_d,list_d):
 		path = os.sep.join((main_d, list_d))  # Made use of os's sep instead...
-		path = path.decode('utf8')
 		if os.path.isdir(path):
 			#list_subd = os.listdir(path)
 			#for sub in list_subd:
 				#parent=self.MODEL.append(parent,[sub])
 			#self.scan_EDF_files(grand_parent,path)
 			main_store= [i for i in listdir(path) if isfile(join(path,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
-			main_store = list_to_table(main_store,sort_col=2)
+			main_store = sorted(main_store)
 			if len(main_store)>0:
 				parent = self.MODEL.append(None,[list_d])
-				self.TABLE_STORE[str(path)] = main_store
-				self.store[str(path)] = get_column_from_table(main_store,0)
+				self.store[str(path)] = main_store
 				for f in main_store:
-					self.MODEL.append(parent,[f[0]])
+					self.MODEL.append(parent,[f])
 			#else:
 				#self.store[str(path)] = [None]
 
 		#time.sleep(3)  # Useless other than to delay finish of thread.
 	
-	#def scan_EDF_files(self,parent, this_dir):
-		#""" Get EDF files from this_directory """
-		##print "Scanning this directory: ",this_dir
-		#main_store= [i for i in listdir(this_dir) if isfile(join(this_dir,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
-		#main_store = sorted(main_store)
-		#if len(main_store)>0:
-			#self.store[str(this_dir)] = main_store
-			#for f in main_store:
-				#self.MODEL.append(parent,[f])
-		#else:
-			#self.store[str(this_dir)] = [None]
-		##print "Scanning... ",self.store.keys()
-		##print this_dir
+	def scan_EDF_files(self,parent, this_dir):
+		#print "Scanning this directory: ",this_dir
+		main_store= [i for i in listdir(this_dir) if isfile(join(this_dir,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
+		main_store = sorted(main_store)
+		if len(main_store)>0:
+			self.store[str(this_dir)] = main_store
+			for f in main_store:
+				self.MODEL.append(parent,[f])
+		else:
+			self.store[str(this_dir)] = [None]
+		#print "Scanning... ",self.store.keys()
+		#print this_dir
 		
 	
 	def choose_folder(self,w):
@@ -2792,24 +2134,22 @@ class MyMainWindow(gtk.Window):
 
 		if response==gtk.RESPONSE_OK:
 			folder=dialog.get_filename()
-			folder=folder.decode('utf8')
-			#folder_basename = folder.split("/")[-1]
-			folder_basename = os.path.basename(os.path.dirname(folder))
+			folder_basename = folder.split("/")[-1]
 			#print folder
 			main_store= [i for i in listdir(folder) if isfile(join(folder,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
-			self.store = {}       #{'folder_1':[list name], 'folder_2': [list name], ...}
-			self.TABLE_STORE = {} #{'folder_1":[table: name-prefix-number], 'folder_2':[table:name-prefix-number],...}
-			
+			self.store = {}
+			#if len(main_store)>0:
+				#main_store = sorted(main_store)
+				#self.store[str(folder)] = main_store
+
 			self.current_folder = folder
 			#print self.store
 			self.get_list_dir(self.current_folder)
 			if len(main_store)>0:
-				#main_store = sorted(main_store)
-				main_store = list_to_table(main_store,sort_col=2)
-				self.TABLE_STORE[str(folder)] = main_store
-				self.store[str(folder)] = get_column_from_table(main_store,0)
+				main_store = sorted(main_store)
+				self.store[str(folder)] = main_store
 				for i in main_store:
-					self.MODEL.append(None,[i[0]])
+					self.MODEL.append(None,[i])
 			else:
 				pass
 			self.TVcolumn.set_title(folder_basename)
@@ -2821,31 +2161,32 @@ class MyMainWindow(gtk.Window):
 		if self.DATA_IS_LOADED:
 			self.store_img = {}
 			for k in self.store.keys():
-				#self.store_img[k] = get_img_list(self.store[k])
-				self.store_img[k] = get_column_from_table(self.TABLE_STORE[k],2)
+				self.store_img[k] = get_img_list(self.store[k])
+			#print "### ",self.store.keys()
+			if self.SPEC_DATA:
+				self.SPEC_DATA.Update()
+				self.update_spec_data()
 
 	def folder_update(self,widget):
 		folder = self.current_folder
 		if folder is not os.getcwd():
 			main_store= [i for i in listdir(folder) if isfile(join(folder,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
-			main_store = list_to_table(main_store,sort_col=2)
+			main_store = sorted(main_store)
 			self.store={}
-			self.TABLE_STORE = {}
 			#self.list_store.clear()
-			self.TABLE_STORE[self.current_folder] = main_store
-			self.store[self.current_folder] = get_column_from_table(main_store,0)
+			self.store[self.current_folder] = main_store
 			self.get_list_dir(self.current_folder)
 			self.store_img = {}
 			for k in self.store.keys():
-				self.store_img[k] = get_column_from_table(self.TABLE_STORE[k],2)
+				self.store_img[k] = get_img_list(self.store[k])
 			
 			for i in main_store:
-				self.MODEL.append(None,[i[0]])
+				self.MODEL.append(None,[i])
 			
 			self.DATA_IS_LOADED = True
-			#if self.SPEC_DATA:
-				#self.SPEC_DATA.Update()
-				#self.update_spec_data()
+			if self.SPEC_DATA:
+				self.SPEC_DATA.Update()
+				self.update_spec_data()
 		#return 1
 
 	def save_image(self,widget):
@@ -2869,16 +2210,15 @@ class MyMainWindow(gtk.Window):
 		response = dialog.run()
 
 		if response==gtk.RESPONSE_OK:
-			self.fig.savefig(dialog.get_filename().decode('utf8'))
+			self.fig.savefig(dialog.get_filename())
 		dialog.destroy()
 
 	def save_adjust(self,widget):
 		""" Save the current EDF image, the file name will be name+adjusted """
 		self.fabioIMG.data = self.data
-		basename = os.path.basename(self.edf)
-		name = basename.split(".")[0]+"_corrected.edf"
-		filename = join(os.path.dirname(self.edf), name)
-		filename = filename.decode('utf8')
+		name = self.edf.split(".")[0]+"_adjusted"
+		ext  = self.edf.split(".")[1]
+		filename = name+"."+ext
 		self.fabioIMG.write(filename)
 		self.popup_info("info", "Image %s is successfully saved !"%filename)
 
@@ -2900,7 +2240,6 @@ class MyMainWindow(gtk.Window):
 		else:
 			self.MAIN_XLABEL.set_text("X (pixel)")
 			self.MAIN_YLABEL.set_text("Y (pixel)")
-		#self.Do_reset_image()
 		self.plot_data()
 	
 	def Angular_space_plot(self):
@@ -2908,8 +2247,8 @@ class MyMainWindow(gtk.Window):
 			self.popup_info('warning','Please calibrate the detector before checking this!')
 			self.tth_chi_space_btn.set_active(False)
 		elif self.calibrated==True:
-			#self.show_chi_delta_btn.set_sensitive(False)
-			self.show_chi_delta_flag=self.show_chi_delta_btn.get_active()
+			self.show_chi_delta_btn.set_sensitive(False)
+			self.show_chi_delta_flag=False
 			self.check_azimuthal_integrator()
 			if self.data.shape == (578,1148) and self.detector_type=="D5":
 				self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,578,1148,unit="2th_deg")
@@ -2927,15 +2266,17 @@ class MyMainWindow(gtk.Window):
 				##self.azimuthalIntegration.setChiDiscAtZero()
 				#self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,120,578,unit="2th_deg")
 				#self.chi_pyFAI = self.chi_pyFAI -90
-			elif self.detector_type=="D1":
-				self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,self.data.shape[0], self.data.shape[1],unit="2th_deg")
+			elif self.data.shape == (577,913) and self.detector_type=="D1":
+				self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,577,913,unit="2th_deg")
 				self.chi_pyFAI = self.chi_pyFAI - 90.#A corriger avec chi gonio
 			else:
 				self.popup_info('warning',"Please correct the detector's geometry prior to proceed this operation!")
 				self.tth_chi_space_btn.set_active(False)
 			
 			self.MAIN_EXTENT = (self.tth_pyFAI.min(), self.tth_pyFAI.max(), self.chi_pyFAI.min(), self.chi_pyFAI.max())
-			
+			#if self.detector_type == "S70":
+				#self.MAIN_EXTENT = (self.tth_pyFAI.min(), self.tth_pyFAI.max(), self.chi_pyFAI.max(), self.chi_pyFAI.min())
+			#print self.MAIN_EXTENT
 		
 	
 	def Reciprocal_space_plot(self,space="HK"):
@@ -2992,15 +2333,15 @@ class MyMainWindow(gtk.Window):
 				Nch1 = 120
 				Nch2 = 578
 				flag = True
-			elif self.detector_type=="D1":
-				Nch1 = self.data.shape[0]
-				Nch2 = self.data.shape[1]
+			elif self.data.shape == (577,913) and self.detector_type=="D1":
+				Nch1 = 577
+				Nch2 = 913
 				flag = True
-			#elif self.data.shape == (913,577) and self.detector_type=="D1":
-				#self.data = N.rot90(self.data)
-				#Nch1 = 577
-				#Nch2 = 913
-				#flag = True
+			elif self.data.shape == (913,577) and self.detector_type=="D1":
+				self.data = N.rot90(self.data)
+				Nch1 = 577
+				Nch2 = 913
+				flag = True
 			else:
 				flag = False
 			
@@ -3018,10 +2359,7 @@ class MyMainWindow(gtk.Window):
 					self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL,dettype='area', U = self.UB_MATRIX)
 				else:
 					#self.Qx,self.Qy,self.Qz = self.experiment.Ang2Q.area(ETA,CHI,PHI,NU,DEL)
-					if self.has_substrate:
-						self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL, mat=self.substrate, dettype='area')
-					else:
-						self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL, dettype='area')
+					self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL, mat=self.substrate, dettype='area')
 				
 				self.QGridder = xrayutilities.Gridder2D(dim1, dim2)
 				if space=="HK":
@@ -3128,12 +2466,6 @@ class MyMainWindow(gtk.Window):
 
 	def plot_profiles(self, x, y, cross_line=True):
 		"""Line x = 2theta profile, Column y = Chi profile, if not transform in 2theta,chi space, the X,Y profiles are plotted in detector coordinates"""
-		integration_width = self.integration_width.get_text()
-		if integration_width=="":
-			integration_width = 10
-		else:
-			integration_width = int(integration_width)
-			
 		if cross_line:
 			x=x[0]
 			y=y[0]
@@ -3152,11 +2484,11 @@ class MyMainWindow(gtk.Window):
 			x= int(x)
 			y= int(y)        
 
-			self.profiles_data_X = self.data[y-integration_width/2:y+integration_width/2,:].sum(axis=0)
-			self.profiles_data_X = self.profiles_data_X / integration_width
+			self.profiles_data_X = self.data[y-5:y+5,:].sum(axis=0)
+			self.profiles_data_X = self.profiles_data_X / 10.
 
-			self.profiles_data_Y = self.data[:, x-integration_width/2:x+integration_width/2].sum(axis=-1)
-			self.profiles_data_Y = self.profiles_data_Y / integration_width
+			self.profiles_data_Y = self.data[:, x-5:x+5].sum(axis=-1)
+			self.profiles_data_Y = self.profiles_data_Y / 10.
 
 			if self.tth_chi_space_btn.get_active():
 				X_label = "2 Theta (deg)"
@@ -3206,7 +2538,7 @@ class MyMainWindow(gtk.Window):
 				self.chi_title.set_text("Y")
 				self.tth_title.set_text("X")
 		else:
-			#This is for arbitrary profile
+			#print "Data shape: ",self.data.shape
 			if self.tth_chi_space_btn.get_active():
 				x[0] = get_index(self.tth_pyFAI,x[0])
 				y[0] = get_index(self.chi_pyFAI,y[0])
@@ -3269,20 +2601,20 @@ class MyMainWindow(gtk.Window):
 		self.coor_Y_export = coor_Y
 		self.profiles_ax1.cla()
 		self.profiles_ax2.cla()
-		#self.profiles_ax1.format_coord = self.pro_format_coord
-		#self.profiles_ax2.format_coord = self.pro_format_coord
+		self.profiles_ax1.format_coord = self.pro_format_coord
+		self.profiles_ax2.format_coord = self.pro_format_coord
 		# The CHI or Vertical (Y) profile (ax1):
 
 		self.profiles_ax1.plot(coor_Y, self.profiles_data_Y, color='blue', lw=1.5)
 		Y_fitted_params, Y_fitted_data = fit(coor_Y, self.profiles_data_Y, yc, arbitrary= not cross_line)
 		self.profiles_ax1.plot(coor_Y, Y_fitted_data, color='red', lw=1, alpha=0.8)
-		self.profiles_ax1.set_xlabel(Y_label, size=14)
+		self.profiles_ax1.set_title(Y_label, size=12)
 
 		# The TTH or Horizontal (X) profile (ax2):
 		self.profiles_ax2.plot(coor_X, self.profiles_data_X, color='blue', lw=1.5)
 		X_fitted_params, X_fitted_data = fit(coor_X, self.profiles_data_X, xc, arbitrary= not cross_line)
 		self.profiles_ax2.plot(coor_X, X_fitted_data, color='red', lw=1, alpha=0.8)
-		self.profiles_ax2.set_xlabel(X_label, size=14)
+		self.profiles_ax2.set_xlabel(X_label, size=12)
 		self.profiles_canvas.draw()
 		# Show the fitted results
 		self.chi_fitted_y0.set_text("%.4f"%Y_fitted_params['y0'].value)
@@ -3320,26 +2652,13 @@ class MyMainWindow(gtk.Window):
 	def profiles_refresh(self):
 		""" """
 		if self.profiles_log_btn.get_active():
-			if len(self.profiles_ax1.get_lines())>0:
-				try:
-					self.profiles_ax1.set_yscale('log')
-				except ValueError:
-					pass
-				
-			if len(self.profiles_ax2.get_lines())>0:
-				try:
-					self.profiles_ax2.set_yscale('log')
-				except ValueError:
-					pass
-			else:
-				self.profiles_log_btn.set_active(False)
-				self.popup_info("error","The graphs have no data!")
+			self.profiles_ax1.set_yscale('log')
+			self.profiles_ax2.set_yscale('log')
 
 		else:
 			self.profiles_ax1.set_yscale('linear')
 			self.profiles_ax2.set_yscale('linear')
-		self.profiles_ax1.format_coord = self.pro_format_coord
-		self.profiles_ax2.format_coord = self.pro_format_coord
+
 		self.profiles_canvas.draw()
 		#return
 
@@ -3350,69 +2669,17 @@ class MyMainWindow(gtk.Window):
 		""" Export X,Y profiles data in the same folder as the EDF image """
 		proX_fname = self.edf.split(".")[0]+"_X_profile.dat"
 		proY_fname = self.edf.split(".")[0]+"_Y_profile.dat"
-		data_x_export = False
-		data_y_export = False
-		if len(self.profiles_ax2.get_lines())>0:
-			proX_export = self.profiles_ax2.get_lines()[0].get_xydata()
+		proX_export= N.vstack([self.coor_X_export, self.profiles_data_X])
+		proX_export=proX_export.T
+		proY_export= N.vstack([self.coor_Y_export, self.profiles_data_Y])
+		proY_export=proY_export.T
+		try:
 			N.savetxt(proX_fname, proX_export)
-			data_x_export = True
-		if len(self.profiles_ax1.get_lines())>0:
-			proY_export = self.profiles_ax1.get_lines()[0].get_xydata()
 			N.savetxt(proY_fname, proY_export)
-			data_y_export = True
-		MSSG = "Data exported: \n\n"
-		if data_x_export:
-			MSSG+=proX_fname+"\n\n"
-		if data_y_export:
-			MSSG+=proY_fname+"\n\n"
-		if data_x_export or data_y_export:
-			self.popup_info('info',MSSG)
-		else:
-			self.popup_info('error','ERROR! No data exported!')
+			self.popup_info('info','Data are successfully exported in %s and %s!'%(proX_fname, proY_fname))
 
-	def profile_press(self, event):
-		""" Calculate thickness fringes """
-		if event.inaxes == self.profiles_ax1:
-			draw_fringes = True
-			ax = self.profiles_ax1
-			ax_data = ax.get_lines()[0].get_xydata()
-			X_data = ax_data[:,0]
-			Y_data = ax_data[:,1]
-			xlabel = 'Y'
-			title = "Linear regression of Y fringes"
-			title_FFT = "Fast Fourier Transform of Y profile"
-			xlabel_FFT= "Frequency"
-		elif event.inaxes == self.profiles_ax2:
-			draw_fringes = True
-			ax = self.profiles_ax2
-			ax_data = ax.get_lines()[0].get_xydata()
-			X_data = ax_data[:,0]
-			Y_data = ax_data[:,1]
-			xlabel = 'X'
-			title = "Linear regression of X fringes"
-			title_FFT = "Fast Fourier Transform of X profile"
-			xlabel_FFT= "Frequency"
-		else:
-			draw_fringes = False
-			
-		if draw_fringes and (event.button==1):
-			if len(self.profiles_fringes)>0:
-				self.profiles_fringes = N.asarray(self.profiles_fringes)
-				self.profiles_fringes = N.sort(self.profiles_fringes)
-				fringes_popup = PopUpFringes(self.profiles_fringes, xlabel, "Fringes order", title)
-				self.profiles_fringes=[]
-				self.clear_notes()
-		elif draw_fringes and (event.button == 3):
-			vline=ax.axvline(event.xdata, linewidth=2, color="green")
-			self.lines.append(vline)
-			self.profiles_fringes.append(event.xdata)
-		
-		elif draw_fringes and event.button == 2:
-			XF,YF = Fourier(X_data, Y_data)
-			popup_window=PopUpImage(XF, YF, xlabel_FFT, "Normalized intensity", title_FFT)
-			
-		self.profiles_canvas.draw()
-		
+		except:
+			self.popup_info('error','ERROR! Data not exported!')
 
 	def draw_rect(self):
 		self.rect.set_width(self.x1 - self.x0)
@@ -3422,58 +2689,9 @@ class MyMainWindow(gtk.Window):
 		self.rect.set_facecolor("white")
 		self.rect.set_alpha(0.3)
 		self.rect.set_edgecolor("black")
+		#self.rect.set_visible(self.zoom_press)
 		self.rect.set_visible(self.zoom_press)
 		self.canvas.draw()
-		
-	def Enable_draw_roi(self,w):
-		if self.draw_roi_btn.get_active():
-			self.ROI_ON = True
-		else:
-			self.ROI_ON = False
-			self.ROI_DRAWN = False
-			
-	def draw_roi(self):
-		self.roi_rect.set_width(self.ROI_x1 - self.ROI_x0)
-		self.roi_rect.set_height(self.ROI_y1 - self.ROI_y0)
-		self.roi_rect.set_xy((self.ROI_x0, self.ROI_y0))
-		self.roi_rect.set_linestyle('solid')
-		self.roi_rect.set_linewidth(2)
-		self.roi_rect.set_facecolor("none")
-		#self.rect.set_alpha(0.3)
-		self.roi_rect.set_edgecolor("red")
-		self.roi_rect.set_visible(True)
-		
-		self.canvas.draw()
-
-
-	def clear_notes(self):
-		self.roi_rect.set_visible(False)
-		if len(self.my_notes)>=1:
-			for txt in self.my_notes:
-				try:
-					txt.remove()
-				except ValueError:
-					break
-		if len(self.lines)>=1:
-			for line in self.lines:
-				try:
-					line.remove()
-				except ValueError:
-					break
-		if len(self.points)>=1:
-			for p in self.points:
-				try:
-					p.remove()
-				except ValueError:
-					break
-
-		self.canvas.draw()
-		self.my_notes = []
-		self.lines=[]
-		self.points=[]
-		self.arb_lines_X=[]
-		self.arb_lines_Y=[]
-		self.arb_line_points = 0
 
 	def peak_max_old(self, event):
 		x = int(event.xdata)
@@ -3544,15 +2762,6 @@ class MyMainWindow(gtk.Window):
 			self.zoom_press = True
 			self.x0 = event.xdata
 			self.y0 = event.ydata
-		#******** ROI plot *********************************
-		elif (self.ROI_ON) and (event.inaxes == self.ax) and (event.button==1):
-			self.ROI_press = True
-			self.roi_rect.set_visible(False)
-			self.ROI_x0 = event.xdata
-			self.ROI_y0 = event.ydata
-			self.SCAN_ROI_INTEGRATION_X = []
-			self.SCAN_ROI_INTEGRATION_Y = []
-			
 		#******** Plot cross profiles *********************************
 		elif (event.inaxes == self.ax) and (event.button==3) and self.plotXYprofiles_btn.get_active():
 			x = event.xdata
@@ -3597,6 +2806,34 @@ class MyMainWindow(gtk.Window):
 		else:
 			return
 
+	def clear_notes(self):
+		if len(self.my_notes)>1:
+			for txt in self.my_notes:
+				try:
+					txt.remove()
+				except ValueError:
+					break
+		if len(self.lines)>1:
+			for line in self.lines:
+				try:
+					line.remove()
+				except ValueError:
+					break
+		if len(self.points)>1:
+			for p in self.points:
+				try:
+					p.remove()
+				except ValueError:
+					break
+
+		self.canvas.draw()
+		self.my_notes = []
+		self.lines=[]
+		self.points=[]
+		self.arb_lines_X=[]
+		self.arb_lines_Y=[]
+		self.arb_line_points = 0
+
 	def on_motion(self,event):
 		if event.inaxes == self.ax:
 			self.status_update(event)
@@ -3605,11 +2842,6 @@ class MyMainWindow(gtk.Window):
 				self.x1 = event.xdata
 				self.y1 = event.ydata
 				self.draw_rect()
-			elif self.ROI_press:
-				self.mouse_moved = True
-				self.ROI_x1 = event.xdata
-				self.ROI_y1 = event.ydata
-				self.draw_roi()
 		else:
 			return
 
@@ -3624,15 +2856,6 @@ class MyMainWindow(gtk.Window):
 			if self.mouse_moved==True:
 				self.zoom_image()
 				self.mouse_moved = False
-				
-		if (self.ROI_ON) and (event.inaxes == self.ax):
-			#print 'release'
-
-			self.ROI_press = False
-			self.ROI_x1 = event.xdata
-			self.ROI_y1 = event.ydata
-			self.draw_roi()
-			self.ROI_DRAWN = True
 
 
 	def check_input_data(self):
@@ -4099,14 +3322,13 @@ class MyMainWindow(gtk.Window):
 			norm_factor = monitor_ref/monitor
 			data = data * norm_factor
 		#sauver EDF apres correction
-		name = os.path.basename(edf)
+		name = edf.split("/")[-1]
 		name_adjusted = name.split(".")[0]+"_corrected"
 		if self.ascii_out.get_active():
 			ext = "dat"
 		else:
 			ext  = name.split(".")[1]
-		#filename = adjusted_folder+"/"+name_adjusted+"."+ext
-		filename = join(adjusted_folder, name_adjusted+"."+ext)
+		filename = adjusted_folder+"/"+name_adjusted+"."+ext
 		if self.ascii_out.get_active():
 			N.savetxt(filename, data, header=str(header))
 		else:
