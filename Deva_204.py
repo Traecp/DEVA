@@ -1187,7 +1187,7 @@ class MyMainWindow(gtk.Window):
 			self.calibrated = True
 			self.calibrated_quantitative = True
 			print "is calibrated? ",self.calibrated
-			self.geometry_manual.set_active(False)
+			# self.geometry_manual.set_active(False)
 			self.canvas.draw()
 			s = os.path.basename(self.ponifile)
 			self.popup_info("info","This detector is calibrated with the PONI file %s!!!"%s)
@@ -3254,12 +3254,12 @@ class MyMainWindow(gtk.Window):
 		
 		img = fabio.open(join(self.edf_folder, img_list[0]))
 		this_motor = get_motors(img.header)
-		rot1 = N.radians(this_motor['nu'])*(-1.)
-		rot2 = N.radians(this_motor['del'])*(-1.)
-		rot3 = N.radians(90-this_motor['chi'])
-		self.azimuthalIntegration.rot1 = rot1
-		self.azimuthalIntegration.rot2 = rot2
-		self.azimuthalIntegration.rot3 = rot3
+		if not self.calibrated_quantitative:
+			rot1 = N.radians(this_motor['nu'])*(-1.)
+			rot2 = N.radians(this_motor['del'])*(-1.)
+			self.azimuthalIntegration.rot1 = rot1
+			self.azimuthalIntegration.rot2 = rot2
+			self.azimuthalIntegration.rot3 = 0
 		total = len(img_list)
 		processed = 0.
 		

@@ -55,8 +55,8 @@ class Pole_Figure_load_data(threading.Thread):
 		a = (tth.max() - b)/500
 		x = (self.pole_2theta - b)/a
 		x = int(x)
-		intensity = I[:,x-5:x+5].sum(axis=-1)
-		intensity = intensity / 10.
+		intensity = I[:,x-2:x+2].sum(axis=-1)
+		intensity = intensity / 4.
 		if self.plot_kphi:
 			this_phi  = this_motor['kphi']
 		else:
