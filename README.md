@@ -11,6 +11,9 @@ git clone https://github.com/Traecp/DEVA.git
 
 Check the proxy setup if connection failed. See wiki for problems solved.
 
+DOCUMENTATION
+==========================
+Please refer to the User Manual for How To Use this software. The manual is found in the "Manual" folder.
 
 INSTALLATION on LINUX and MAC OSX
 ==========================
@@ -60,6 +63,6 @@ INSTALLATION on WINDOWS
 	
 RUNNING: 
 ==========================
-to run DEVA, just open a terminal wherever you want (or command prompt on Windows) and type: Deva.py
+to run DEVA, just open a terminal wherever you want (or command prompt on Windows) and type: Deva.py or just Deva
 + Please refer to the wiki pages for more detail about software usage.
 	
