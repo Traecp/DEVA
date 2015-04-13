@@ -1705,6 +1705,9 @@ class MyMainWindow(gtk.Window):
 		for t in threads:
 			t.join()
 			output.append(t.Data)
+		while len(threads)>0:
+			threads.pop()
+		# gobject.timeout_add(200, self._callback)
 		output.sort()
 		self.SPEC_ACTUAL_SCAN_DATA   = [o[1] for o in output]
 		self.SPEC_ACTUAL_SCAN_HEADER = [o[2] for o in output]
@@ -2393,6 +2396,9 @@ class MyMainWindow(gtk.Window):
 			self.get_list_dir(self.current_folder)
 			for t in self.threads:
 				t.join()
+			while len(self.threads)>0:
+				self.threads.pop()
+			# gobject.timeout_add(200, self._callback)
 			if len(main_store)>0:
 				#main_store = sorted(main_store)
 				main_store = list_to_table(main_store,sort_col=2)
@@ -2428,6 +2434,9 @@ class MyMainWindow(gtk.Window):
 			self.get_list_dir(self.current_folder)
 			for t in self.threads:
 				t.join()
+			while len(self.threads)>0:
+				self.threads.pop()
+			# gobject.timeout_add(200, self._callback)
 			self.store_img = {}
 			for k in self.store.keys():
 				self.store_img[k] = get_column_from_table(self.TABLE_STORE[k],2)
@@ -3288,7 +3297,9 @@ class MyMainWindow(gtk.Window):
 			self.sample_tilt = t.chi_gonio
 			self.omega = t.omega
 			
-			
+		while len(threads)>0:
+			threads.pop()
+		# gobject.timeout_add(200, self._callback)
 		output.sort()
 		intensity = [o[1] for o in output]
 		phi_table = [o[2] for o in output]
@@ -3716,9 +3727,15 @@ class MyMainWindow(gtk.Window):
 	def batch_transform(self,widget):
 		task = self.processing()
 		gobject.idle_add(task.next)
+	def _callback(self):
+		if threading.active_count() == 1:  # If only one left, scanning is done
+			return False  # False make callback stop
+		#print threading.active_count()
+		return True
 #***********************************************************************************************
 #                                       FINISHED
 #***********************************************************************************************
 if __name__ == "__main__":
+	gtk.threads_init()
 	m=MyMainWindow()
 	gtk.main()

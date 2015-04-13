@@ -20,8 +20,8 @@ class get_scan_data_thread(threading.Thread):
 		edf    = join(self.edf_folder, self.edf_basename)
 		data   = fabio.open(edf).data
 		header = fabio.open(edf).header
-		stdout.write("Loading %s\n"%self.edf_basename)
-		stdout.flush()
+		# stdout.write("Loading %s\n"%self.edf_basename)
+		# stdout.flush()
 		self.Data = (self.order,data,header)
 		# MAIN_LOCK.release()
 	
@@ -63,8 +63,8 @@ class Pole_Figure_load_data(threading.Thread):
 			this_phi  = this_motor['phi']
 		self.chi_gonio= this_motor["chi"]
 		self.omega    = this_motor["eta"]
-		stdout.write("\rLoading %s"%self.edf_basename)
-		stdout.flush()
+		# stdout.write("\rLoading %s"%self.edf_basename)
+		# stdout.flush()
 		self.chi = chi
 		self.Data = [self.order, intensity, this_phi]
 		# MAIN_LOCK.release()
