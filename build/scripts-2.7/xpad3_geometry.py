@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!C:\Python27\python.exe
 # -*- coding: utf-8 -*-
 #
 # This file is licensed under the CeCILL licence
@@ -853,6 +853,11 @@ def radial_distributions(center, data, maxi, removeZero=True, sectors=4) :
 def edf_write(data, name, ext='.edf', verbose=False,**kwargs) :
     fname = os.path.basename(os.path.splitext(name)[0]+ext)
     out = open(fname, 'w')
+	prefix = fname.split("_")[0]
+	run    =  fname.split("_")[-1]
+	run    = run.split(".")[0]
+	run    = int(run)
+	suffix = ext
     out.write("""{
  HeaderID  = EH:000001:000000:000000;
  ByteOrder = LowByteFirst ;
@@ -860,6 +865,9 @@ def edf_write(data, name, ext='.edf', verbose=False,**kwargs) :
 """ )
     out.write(' Dim_1 = %d;\n' % data.shape[0])
     out.write(' Dim_2 = %d;\n' % data.shape[1])
+	out.write(' prefix = %s;\n'% prefix)
+	out.write(' run = %d;\n'%run)
+	out.write(' suffix = %s;\n'%suffix)
     if data.dtype == np.float64 :
         out.write(' DataType = FloatValue ;\n')
         data=data.astype(np.float32)

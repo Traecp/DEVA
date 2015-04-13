@@ -20,6 +20,12 @@ from scipy.fftpack import fft, fftfreq, fftshift
 from lmfit import Parameters, minimize
 from DEVA.xpad import libXpad as libX
 from DEVA.utilities import Combination_edf_by_translationXZ as EDF_XZ_combination
+from DEVA.PopUpWindows import *
+from DEVA.ReadSpecD1 import *
+from DEVA.CommonFunctions import *
+from DEVA.GettingData_MultiThreading import *
+from DEVA.Geometry_Correction import *
+
 ##############
 ## Graphic library ##
 ##############
@@ -33,8 +39,6 @@ from matplotlib.cm import jet # colormap
 from matplotlib.widgets import Cursor
 from matplotlib.patches import Rectangle
 from matplotlib.ticker import MaxNLocator
-#calculation of two theta,chi
-
 import fabio
 import pyFAI
 import xrayutilities
@@ -42,7 +46,7 @@ import xrayutilities
 __author__="Tra NGUYEN THANH"
 __email__ = "thanhtra0104@gmail.com"
 __version__ = "2.0.4"
-__date__="09/04/2015"
+__date__="13/04/2015"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -59,492 +63,8 @@ mpl.rcParams['savefig.dpi'] = 300
 #Global variables
 _PIXEL_SIZE   = 130e-6 #m
 _SPEC_IMG_COL = ["img", "xpadNum"] #column containing image number in spec file
-MAIN_LOCK = threading.Lock()
-
-def get_scan_data(*args, **kwargs):
-	return MyMainWindow.get_scan_data(*args, **kwargs)
-
-def call_it(instance, name, args=(), kwargs=None):
-	"""indirect caller for instance methods and multiprocessing"""
-	if kwargs is None:
-		kwargs = {}
-	return getattr(instance, name)(*args, **kwargs)
+# MAIN_LOCK = threading.Lock()
 	
-def sort_table(table, col=0, reverse=False):
-	#reverse = True: Z-->A
-	#reverse = False: A-->Z
-	return sorted(table, key=operator.itemgetter(col), reverse=reverse)
-
-def list_to_table(main_store, sort_col=2):
-	""" Convert the list of edf image into a table of 3 columns:
-	EDF_name : EDF_prefix : EDF_number
-	The EDF name must be in format: prefix_number.edf
-	"""
-	main_table = []
-	if len(main_store)>0:
-		for i in range(len(main_store)):
-			try:
-				if "_" in main_store[i]:
-					e = []
-					e.append(main_store[i])
-					row=main_store[i].split("_")
-					e.append(row[0])
-					row = row[1]
-					row = row.split(".")[0]
-					if 'g' in row:
-						row = row[:-1]
-					e.append(int(row))
-					main_table.append(e)
-				else:
-					continue
-			except ValueError:
-				continue
-		store = sort_table(main_table,col=sort_col)
-		return store
-	else:
-		return {}
-	
-
-def Fourier(X,vect):  
-	Nb  = vect.size   #number of data points
-	T  = X[1] - X[0] #sample spacing
-	TF = fft(vect)
-	
-	xf = fftfreq(Nb,T)
-	xf = fftshift(xf)
-	yplot = fftshift(TF)
-	yplot = N.abs(yplot)
-	yplot = yplot[Nb/2:]
-	xf    = xf[Nb/2:]
-	return xf, yplot/yplot.max()
-
-def flat_data(data,dynlow, dynhigh, log):
-	""" Returns data where maximum superior than 10^dynhigh will be replaced by 10^dynhigh, inferior than 10^dynlow will be replaced by 10^dynlow"""
-	if log:
-		mi = 10**dynlow
-		ma = 10**dynhigh
-		data=N.minimum(N.maximum(data,mi),ma)
-		data=N.log10(data)
-	else:
-		mi = dynlow
-		ma = dynhigh
-		data=N.minimum(N.maximum(data,mi),ma)
-	return data
-
-def psdVoigt(parameters,x):
-	"""Define pseudovoigt function"""
-	y0 = parameters['y0'].value
-	xc = parameters['xc'].value
-	A  = parameters['A'].value
-	w  = parameters['w'].value
-	mu = parameters['mu'].value
-
-	y  = y0 + A * ( mu * (2/N.pi) * (w / (4*(x-xc)**2 + w**2)) + (1 - mu) * (N.sqrt(4*N.log(2)) / (N.sqrt(N.pi) * w)) * N.exp(-(4*N.log(2)/w**2)*(x-xc)**2) )
-
-	return y
-
-def objective(pars,y,x):
-	#we will minimize this function
-	err =  y - psdVoigt(pars,x)
-	return err
-def init(data_x,data_y,xc,arbitrary=False):
-	""" param = [y0, xc, A, w, mu]
-	Je veux que Xc soit la position que l'utilisateur pointe sur l'image pour tracer les profiles"""
-	param = Parameters()
-	if arbitrary:
-		A  = data_y.max()
-	else:
-		idA=N.where(data_x==xc)[0][0]
-		A  = data_y[idA]
-	y0 = 20
-	#xc = data_x[N.argmax(data_y)]
-	w  = 0.5
-	mu = 0.5
-	param.add('y0', value=y0)
-	param.add('xc', value=xc)
-	param.add('A', value=A)
-	param.add('w', value=w)
-	param.add('mu', value=mu, min=0., max=1.)
-	return param
-
-def fit(data_x,data_y,xc, arbitrary=False):
-	""" return: fitted data y, fitted parameters """
-	param_init = init(data_x,data_y,xc,arbitrary)
-	if data_x[0] > data_x[-1]:
-		data_x = data_x[::-1]
-	result = minimize(objective, param_init, args=(data_y,data_x))
-
-	x = N.linspace(data_x.min(),data_x.max(),data_x.shape[0])
-	y = psdVoigt(param_init,x)
-
-	return param_init, y
-
-def wpercentile(a, q, weights=None):
-	"""Compute weighted percentiles *q* [%] of input 1D-array *a*."""
-
-	a = N.asarray(a)
-	if a.ndim > 1:
-		raise NotImplementedError("implemented on 1D-arrays only")
-
-	if weights is None:
-		weights = N.ones_like(a)
-	else:
-		assert len(weights)==len(a), "incompatible weight and input arrays"
-		assert (weights>0).all(), "weights are not always strictly positive"
-
-	isorted = N.argsort(a)
-	sa = a[isorted]
-	sw = weights[isorted]
-	sumw = N.cumsum(sw)                        # Strictly increasing
-	scores = 1e2*(sumw - 0.5*sw)/sumw[-1]      # 0-100 score at center of bins
-
-	def interpolate(q):
-		i = scores.searchsorted(q)
-		if i==0:                        # Below 1st score
-			val = sa[0]
-		elif i==len(a):                 # Above last score
-			val = sa[-1]
-		else:                           # Linear score interpolation
-			val = (sa[i-1]*(scores[i] - q) + sa[i]*(q - scores[i-1])) / \
-				(scores[i] - scores[i-1])
-		return val
-
-	out = N.array([ interpolate(qq) for qq in N.atleast_1d(q) ])
-
-	return out.reshape(N.shape(q))      # Same shape as input q
-
-
-def median_stats(a, weights=None, axis=None, scale=1.4826):
-	"""Compute [weighted] median and :func:`nMAD` of array *a* along
-	*axis*. Weighted computation is implemented for *axis* = None
-	only."""
-
-	if weights is not None:
-		if axis is not None:
-			raise NotImplementedError("implemented on 1D-arrays only")
-		else:
-			med  = wpercentile(a, 50., weights=weights)
-			nmad = wpercentile(N.absolute(a - med), 50., weights=weights)*scale
-	else:
-		med = N.median(a, axis=axis)
-		if axis is None:
-			umed = med                      # Scalar
-		else:
-			umed = N.expand_dims(med, axis) # Same ndim as a
-		nmad = N.median(N.absolute(a - umed), axis=axis) * scale
-
-	return med,nmad
-
-def get_index(arr, val):
-	#Get index of val from a 1D array arr
-	b = arr.min()
-	a = (arr.max() - b)/(arr.size-1)
-	x = (val - b)/a
-	return int(x)
-
-def get_motors(header):
-	#Get a dictionnary like motors {name:position} from a header of an EDF image
-	motor_pos  = header['motor_pos'].split()
-	motor_mne  = header['motor_mne'].split()
-	motor = {}
-	for j in range(len(motor_mne)):
-		motor[motor_mne[j]] = float(motor_pos[j])
-	return motor
-	
-def get_counters(header):
-	#Get a dictionnary like counters {name:position} from a header of an EDF image
-	counter_name = header['counter_mne'].split()
-	counter_value= header['counter_pos'].split()
-	counters= {}
-	for i in range(len(counter_name)):
-		counters[counter_name[i]] = float(counter_value[i])
-	return counters
-
-def select_files_from_list(s, beg, end):
-	""" select edf files limited between number 'beg' and 'end' from the list 's' """
-	out=[]
-	for i in range(len(s)):
-		ss = s[i]
-		if "-" in ss:
-			spliter = "-"
-		else:
-			spliter = "_"
-			
-		l = ss.split(spliter)
-		l = l[1]
-		n = l.split(".")[0]
-		if 'g' in n:
-			n = n[:-1]
-		n = int(n)
-		if n in range(beg, end+1):
-			out.append(ss)
-	#out = sorted(out)
-	return out
-
-def get_img_list(edf_list):
-	""" Get a list of image numbers from an image_name list """
-	out = []
-	for i in range(len(edf_list)):
-		edf = edf_list[i]
-		if edf != None:
-			if "-" in edf:
-				spliter = "-"
-			else:
-				spliter = "_"
-			l = edf.split(spliter)
-			l = l[1]
-			n = l.split(".")[0]
-			if 'g' in n:
-				n = n[:-1]
-			n = int(n)
-			out.append(n)
-		else:
-			out.append(None)
-	out = N.asarray(out)
-	return N.asarray(out)
-
-def get_column_from_table(table,col):
-	out = []
-	for i in range(len(table)):
-		out.append(table[i][col])
-	return out
-
-
-class Scan_D1(object):
-	""" Object containing one scan
-	Reading from old format dataspec recorded by Xpad D1 detector
-	"""
-	def __init__(self,scanid,command,colnames,header, scan_status, data):
-		self.nr = int(scanid)
-		self.command = command
-		self.colnames= colnames
-		self.header = header
-		self.motors  = {}
-		self.scan_status = scan_status
-		self.data = data
-		self.count_time = 0
-	def ReadData(self):
-		for line in self.header:
-			if line.startswith("#P0"):
-				line = line.split()
-				line = line[1:]
-				self.motors['del'] = float(line[0])
-				self.motors['eta'] = float(line[1])
-				self.motors['chi'] = float(line[2])
-				self.motors['phi'] = float(line[3])
-				self.motors['nu'] = float(line[4])
-				self.motors['mu'] = float(line[5])
-				#break
-			elif line.startswith("#T"):
-				line = line.split()
-				self.count_time = float(line[1])
-			else:
-				continue
-		
-	def __str__(self):
-		return self.command
-		
-
-class Read_Spec_D1(object):
-	""" Read a scan from dataspec file, i.e. kappapsic.DATE - old format used by D1 xpad detector
-	Use: scan = Read_Spec_D1(specfile)
-	Where specfile is the kappapsic.DATE file
-	"""
-	def __init__(self, specfile):
-		self.full_filename = specfile
-		self.filename = os.path.basename(self.full_filename)
-		self.scan_list = []
-		self.Parse()
-		
-	def Parse(self):
-		
-		f=open(self.full_filename,'r+')
-		for line in f:
-			if line.startswith("#S "):
-				print "Parsing ",line
-				header = []
-				data   = {}
-				cmd    = line
-				cmd    = cmd.split()
-				scanid = int(cmd[1])
-				cm     = cmd[2:]
-				command= ""
-				for i in range(len(cm)):
-					command+=cm[i]
-					if i<len(cm)-1:
-						command+=" "
-				#The next 14 lines is the header of this scan
-				for i in range(14):
-					header.append(f.next().split("\n")[0])
-				colnames = f.next().split("\n")[0]
-				colnames = colnames.split()
-				colnames = colnames[1:]
-				for c in range(len(colnames)):
-					data[colnames[c]] = []
-				
-				stop = False
-				while not stop:
-					l=f.next()
-					if l.startswith("#R %d"%scanid) or l.startswith("#C"):
-						stop = True
-						if l.startswith("#R %d"%scanid):
-							scan_status = "OK"
-						else:
-							scan_status = "ABORTED"
-					else:
-						stop = False
-						if l.startswith("#"):
-							continue
-						else:
-							item = l.split()
-							for i in range(len(item)):
-								data[colnames[i]].append(float(item[i]))
-				
-				for k in data.keys():
-					data[k] = N.asarray(data[k])
-				s = Scan_D1(scanid,command,colnames,header, scan_status, data)
-				self.scan_list.append(s)
-			else:
-				continue
-		f.close()
-		
-	def __str__(self):
-		out=""
-		out+="Spec file: %s"%self.full_filename
-		out+= "\nThere are %d scans recorded"%len(self.scan_list)
-		return out
-		
-class PopUpFringes(object):
-	def __init__(self, xdata, xlabel, ylabel, title):
-		self.popupwin=gtk.Window()
-		self.popupwin.set_size_request(600,550)
-		self.popupwin.set_position(gtk.WIN_POS_CENTER)
-		self.popupwin.set_border_width(10)
-		self.xdata = xdata
-		vbox = gtk.VBox()
-		self.fig=Figure(dpi=100)
-		self.ax  = self.fig.add_subplot(111)
-		self.canvas  = FigureCanvas(self.fig)
-		self.main_figure_navBar = NavigationToolbar(self.canvas, self)
-		self.cursor = Cursor(self.ax, color='k', linewidth=1, useblit=True)
-		self.ax.set_xlabel(xlabel, fontsize = 18)
-		self.ax.set_ylabel(ylabel, fontsize = 18)
-		self.ax.set_title(title, fontsize = 18)
-		
-		xi = N.arange(len(self.xdata))		
-		slope, intercept, r_value, p_value, std_err = stats.linregress(self.xdata,xi)
-		fitline = slope*self.xdata+intercept
-		
-		self.ax.plot(self.xdata, fitline, 'r-',self.xdata,xi, 'bo')
-		self.ax.axis([self.xdata.min(),self.xdata.max(),xi.min()-1, xi.max()+1])
-		
-		self.ax.text(0.3, 0.9,'Slope = %.4f +- %.4f' % (slope, std_err),
-								horizontalalignment='center',
-								verticalalignment='center',
-								transform = self.ax.transAxes,
-								color='red')
-		vbox.pack_start(self.main_figure_navBar, False, False, 0)
-		vbox.pack_start(self.canvas, True, True, 2)
-		self.popupwin.add(vbox)
-		self.popupwin.connect("destroy", self.dest)
-		self.popupwin.show_all()
-	
-	def dest(self,widget):
-		self.popupwin.destroy()
-	
-class PopUpImage(object):
-	def __init__(self, xdata, ydata, xlabel, ylabel, title):
-		self.popupwin=gtk.Window()
-		self.popupwin.set_size_request(600,550)
-		self.popupwin.set_position(gtk.WIN_POS_CENTER)
-		self.popupwin.set_border_width(10)
-		self.xdata = xdata
-		self.ydata = ydata
-		vbox = gtk.VBox()
-		self.fig=Figure(dpi=100)
-		self.ax  = self.fig.add_subplot(111)
-		self.canvas  = FigureCanvas(self.fig)
-		self.main_figure_navBar = NavigationToolbar(self.canvas, self)
-		self.cursor = Cursor(self.ax, color='k', linewidth=1, useblit=True)
-		self.canvas.mpl_connect("button_press_event",self.on_press)
-		self.ax.set_xlabel(xlabel, fontsize = 18)
-		self.ax.set_ylabel(ylabel, fontsize = 18)
-		self.ax.set_title(title, fontsize = 18)
-		self.ax.plot(self.xdata, self.ydata, 'b-', lw=2)
-		
-		self.textes = []
-		self.plots  = []
-		vbox.pack_start(self.main_figure_navBar, False, False, 0)
-		vbox.pack_start(self.canvas, True, True, 2)
-		self.popupwin.add(vbox)
-		self.popupwin.connect("destroy", self.dest)
-		self.popupwin.show_all()
-	
-	def dest(self,widget):
-		self.popupwin.destroy()
-	
-	def on_press(self, event):
-		if event.inaxes == self.ax and event.button==3:
-			self.clear_notes()
-			xc = event.xdata
-			#***** Find the closest x value *****
-			residuel = self.xdata - xc
-			residuel = N.abs(residuel)
-			j = N.argmin(residuel)
-			#y = self.ydata[i-1:i+1]
-			#yc= y.max()
-			#j = N.where(self.ydata == yc)
-			#j = j[0][0]
-			xc= self.xdata[j]
-			x_fit = self.xdata[j-3:j+3]
-			y_fit = self.ydata[j-3:j+3]
-			fitted_param, fitted_data = fit(x_fit, y_fit, xc, True)
-			x_fit = N.linspace(x_fit.min(), x_fit.max(), 200)
-			y_fit = psdVoigt(fitted_param, x_fit)
-			period = fitted_param['xc'].value
-			std_err= fitted_param['xc'].stderr
-			
-			p = self.ax.plot(x_fit, y_fit,'r-')
-			p2 = self.ax.axvline(period,color='green',lw=2)
-			
-			txt=self.ax.text(0.05, 0.9, 'Period = %.4f +- %.4f (nm)'%(period, std_err), transform = self.ax.transAxes, color='red')
-			self.textes.append(txt)
-			self.plots.append(p[0])
-			self.plots.append(p2)
-		elif event.inaxes == self.ax and event.button==2:
-			dif = N.diff(self.ydata)
-			dif = dif/dif.max()
-			p3=self.ax.plot(dif,'r-')
-			self.plots.append(p3[0])
-		self.canvas.draw()
-	
-	def clear_notes(self):
-		if len(self.textes)>0:
-			for t in self.textes:
-				t.remove()
-		if len(self.plots)>0:
-			for p in self.plots:
-				p.remove()
-		self.textes = []
-		self.plots  = []
-
-class get_scan_data_thread(threading.Thread):
-	def __init__(self,i, edf_folder, edf_basename):
-		threading.Thread.__init__(self)
-		self.Data = ()
-		self.order = i 
-		self.edf_folder = edf_folder
-		self.edf_basename = edf_basename
-	def run(self):
-		# MAIN_LOCK.acquire()
-		edf    = join(self.edf_folder, self.edf_basename)
-		data   = fabio.open(edf).data
-		header = fabio.open(edf).header
-		stdout.write("Loading %s\n"%self.edf_basename)
-		stdout.flush()
-		self.Data = (self.order,data,header)
-		# MAIN_LOCK.release()
-		
 class MyMainWindow(gtk.Window):
 
 	def __init__(self):
@@ -1217,7 +737,7 @@ class MyMainWindow(gtk.Window):
 		self.page_pole_figure.pack_start(self.left_panel_polefigure,False,False,10)
 
 		self.polefig=Figure(figsize=(10,8),dpi=100)
-		self.polar_ax  = self.polefig.add_axes([0.1,0.1,0.75,0.8], polar='True')
+		self.polar_ax  = self.polefig.add_axes([0.1,0.1,0.75,0.8])
 		#self.polar_ax  = self.polefig.add_axes([0.1,0.1,0.75,0.8])
 		#self.polar_ax.set_frame_on(False)
 		self.polar_cax = self.polefig.add_axes([0.85,0.1,0.03,0.8])
@@ -1565,6 +1085,16 @@ class MyMainWindow(gtk.Window):
 			fmty = '%.2f'%y
 		form = 'x=%s, y=%s'%(str(fmtx),str(fmty))
 		return form
+		
+	def pole_format_coord(self, x,y):
+		r = N.sqrt(x**2 + y**2)
+		chi = N.degrees(r)
+		phi = N.arctan2(y,x)
+		phi = N.degrees(phi)
+		if phi <0:
+			phi += 360
+		out = "Chi = %.2f, Phi = %.2f"%(chi, phi)
+		return out
 
 	def init_image(self):
 		self.ax.clear()
@@ -1641,7 +1171,6 @@ class MyMainWindow(gtk.Window):
 		self.warning.run()
 		self.warning.destroy()
 
-    
 	def load_calibration(self, widget):
 		""" load a pre-calib file , PONI file """
 		dialog = gtk.FileChooserDialog("Select a PONI file",None,gtk.FILE_CHOOSER_ACTION_OPEN,(gtk.STOCK_CANCEL,gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
@@ -1774,7 +1303,6 @@ class MyMainWindow(gtk.Window):
 		self.table_dSpace = self.azimuthalIntegration.wavelength / (2*N.sin(self.tableTwoTheta/2.0)) * 1e10 #d in Angstrom
 		self.tableTwoTheta = N.degrees(self.tableTwoTheta)
 		
-		
 	def set_detector(self,widget, det_type):
 		if det_type.upper()=="D5":
 			print "D5 selected"
@@ -1821,7 +1349,6 @@ class MyMainWindow(gtk.Window):
 			self.azimuthalIntegration.rot3 = rot3
 		self.calculation_angular_coordinates()
 		
-
 	def get_dark(self,w):
 		if self.use_dark_tb.get_active():
 			#self.DARK_CORRECTION = not self.DARK_CORRECTION
@@ -2226,11 +1753,9 @@ class MyMainWindow(gtk.Window):
 		else:
 			return
 		
-	
 	def slider_plot_scan(self, widget):
 		self.plot_scan()
 	
-
 	def get_roi_data(self):
 		if self.detector_space_btn.get_active():
 			r = sorted([int(self.ROI_y0), int(self.ROI_y1)])
@@ -2300,7 +1825,7 @@ class MyMainWindow(gtk.Window):
 			self.header = self.SPEC_ACTUAL_SCAN_HEADER[img_index]
 			if self.adj_btn.get_active():
 				if self.data.shape == (960,560) or self.data.shape == (120,560):
-					self.data = self.correct_geometry(self.data)
+					self.data = correct_geometry(self.data, detector_type=self.detector_type)
 			if self.horizontal_detector:
 				self.data = N.rot90(self.data)
 			this_title = self.SPEC_ACTUAL_SCAN_IMG_NAMES[img_index]
@@ -2398,7 +1923,7 @@ class MyMainWindow(gtk.Window):
 				motor=get_motors(self.SPEC_ACTUAL_SCAN_HEADER[i])			
 				data = self.SPEC_ACTUAL_SCAN_DATA[i]
 				if data.shape == (960,560) or data.shape == (120,560):
-					data = self.correct_geometry(data)
+					data = correct_geometry(data, detector_type=self.detector_type)
 				if self.detector_type == "S70":
 					data = N.flipud(data)
 				
@@ -2518,7 +2043,6 @@ class MyMainWindow(gtk.Window):
 			else:
 				continue
 			
-				
 	def change_scale(self,button, data):
 		if button.get_active():
 			button.set_label("Linear scale")
@@ -2566,7 +2090,6 @@ class MyMainWindow(gtk.Window):
 		self.sld_vmax.set_range(0,self.vmax_range)
 		self.sld_vmin.set_range(0,self.vmax_range)
 		return data
-	
 	
 	def scale_plot(self):
 		data = self.data.copy()
@@ -2631,9 +2154,6 @@ class MyMainWindow(gtk.Window):
 			#self.polar_ax.relim()
 			self.plot_PF()
 
-			
-			#self.pole_canvas.draw()
-    
 	def detector_disposition(self,widget):
 		""" Set detector vertically or horizontally """
 		#data = self.data.copy()
@@ -2678,7 +2198,6 @@ class MyMainWindow(gtk.Window):
 		tth = self.tableTwoTheta[y,x]
 		d   = self.table_dSpace[y,x]
 		return chi, tth, d
-
 
 	def show_chi_delta(self,widget):
 		""" If the show_chi_delta_btn is checked and the calibration file is loaded """
@@ -2755,7 +2274,6 @@ class MyMainWindow(gtk.Window):
 			self.canvas.window.set_cursor(None)
 			self.cursor.visible = True
 
-		
 	def zoom_image(self):
 		tmp_x = [self.x0, self.x1]
 		tmp_y = [self.y0, self.y1]
@@ -2957,7 +2475,6 @@ class MyMainWindow(gtk.Window):
 		self.fabioIMG.write(filename)
 		self.popup_info("info", "Image %s is successfully saved !"%filename)
 
-
 	def plot_update(self,widget):
 		if self.tth_chi_space_btn.get_active():
 			self.MAIN_XLABEL.set_text(r"$2\theta\ (deg.)$")
@@ -3010,8 +2527,6 @@ class MyMainWindow(gtk.Window):
 				self.tth_chi_space_btn.set_active(False)
 			
 			self.MAIN_EXTENT = (self.tth_pyFAI.min(), self.tth_pyFAI.max(), self.chi_pyFAI.min(), self.chi_pyFAI.max())
-			
-		
 	
 	def Reciprocal_space_plot(self,space="HK"):
 		""" space should be HK, HL or KL """
@@ -3391,7 +2906,6 @@ class MyMainWindow(gtk.Window):
 		self.ax.axis([self.MAIN_EXTENT[0],self.MAIN_EXTENT[1], self.MAIN_EXTENT[2], self.MAIN_EXTENT[3]])
 		self.canvas.draw()
 
-
 	def profiles_refresh(self):
 		""" """
 		if self.profiles_log_btn.get_active():
@@ -3488,7 +3002,6 @@ class MyMainWindow(gtk.Window):
 			
 		self.profiles_canvas.draw()
 		
-
 	def draw_rect(self):
 		self.rect.set_width(self.x1 - self.x0)
 		self.rect.set_height(self.y1 - self.y0)
@@ -3519,7 +3032,6 @@ class MyMainWindow(gtk.Window):
 		self.roi_rect.set_visible(True)
 		
 		self.canvas.draw()
-
 
 	def clear_notes(self):
 		self.roi_rect.set_visible(False)
@@ -3709,7 +3221,6 @@ class MyMainWindow(gtk.Window):
 			self.draw_roi()
 			self.ROI_DRAWN = True
 
-
 	def check_input_data(self):
 		""" Check if the user has entered correctly the data needed to construct the pole figure
 		We need the start and end number of images, and the 2 theta for which we want to plot """
@@ -3723,26 +3234,9 @@ class MyMainWindow(gtk.Window):
 			self.popup_info("error","Values are not entered correctly. Please check again!")
 			return False
 
-	def correct_geometry(self, data):
-		"""Correct image geometry of XPAD D5 detector
-		The default image shape is 960x560 """
-		if self.detector_type == "D5":
-			detector = libX.Detector()
-		elif self.detector_type == "S70":
-			detector = libX.Detector(nModules=1)
-		else:
-			self.popup_info("warning","Please specify the detector model.")
-			return None
-		#Ajouter les gaps ## Code de Clement Buton @Soleil
-		detector.set_data(array=data)
-		detector.adjust_data()
-		detector.set_physical_data()
-		detector.reshape_pixels()
-		data = detector.physical.data
-		#data = N.rot90(data)
-		return data
+	
 		   
-	def load_data(self, img_deb, img_fin, pole_2theta, plot_chi_min, logscale=0):
+	def load_data(self, img_deb, img_fin, pole_2theta):
 		"""
 		folder: directory where edf images are found
 		img_deb, img_fin: number of beginning and ending images for the maps
@@ -3750,8 +3244,6 @@ class MyMainWindow(gtk.Window):
 		logscale: (1 or 0) to present the pole figure in log scale or linear scale
 		"""
 		self.data_loading.show()
-		phi_table = []
-		intensity = []
 		#Check where the images are
 		for k in self.store_img.keys():
 			if (img_deb in self.store_img[k]) and (img_fin in self.store_img[k]):
@@ -3759,19 +3251,6 @@ class MyMainWindow(gtk.Window):
 				break
 		
 		img_list  = select_files_from_list(self.store[self.edf_folder], img_deb, img_fin)
-		if self.detector_type == "D1":
-			first_dim = 577
-			second_dim= 913
-		elif self.detector_type == "D5":
-			first_dim = 578
-			second_dim= 1148
-		elif self.detector_type == "S70":
-			first_dim = 120
-			second_dim= 578
-		#if not self.horizontal_detector:
-			#temp=first_dim
-			#first_dim = second_dim
-			#second_dim = temp
 		
 		img = fabio.open(join(self.edf_folder, img_list[0]))
 		this_motor = get_motors(img.header)
@@ -3783,53 +3262,17 @@ class MyMainWindow(gtk.Window):
 		self.azimuthalIntegration.rot3 = rot3
 		total = len(img_list)
 		processed = 0.
-		for j in range(len(img_list)):
-			gc.collect()
-			edf_basename = img_list[j]
-			edf = join(self.edf_folder, edf_basename)
-			try:
-				img = fabio.open(edf)
-				this_motor = get_motors(img.header)
-				#rot1 = N.radians(this_motor['nu'])*(-1.)
-				#rot2 = N.radians(this_motor['del'])*(-1.)
-				#rot3 = N.radians(90-this_motor['chi'])
-				#self.azimuthalIntegration.rot1 = rot1
-				#self.azimuthalIntegration.rot2 = rot2
-				#self.azimuthalIntegration.rot3 = rot3
-				if img.data.shape == (960,560):
-					data = self.correct_geometry(img.data)
-					data = N.rot90(data)
-					img.data = data 
-					
-				I,tth,chi = self.azimuthalIntegration.integrate2d(img.data,first_dim,second_dim,unit="2th_deg")
-				#2theta vs pixel: y = ax + b
-				b = tth.min()
-				a = (tth.max() - b)/first_dim
-				x = (pole_2theta - b)/a
-				x = int(x)
-				#print "Center pixel used: ",x
-				i = I[:,x-2:x+2].sum(axis=-1)
-				i = i / 4.
-				intensity.append(i)
-				
-				this_kphi = this_motor['kphi']
-				this_phi  = this_motor['phi']
-				chi_gonio = this_motor['chi']
-				self.sample_tilt = chi_gonio
-				self.omega = this_motor['eta']
-				#nu_gonio  = this_motor['nu']
-				if self.select_phi.get_active():			
-					kphi = this_phi
-				elif self.select_kphi.get_active():
-					kphi = this_kphi
-				#print "kPhi: ",kphi
-				phi_table.append(kphi)
-				#phi rows and chi colunms
-				#print "Image %s is successully loaded"%edf_basename
-				
-			except:
-				#print "Image %s does not exist!"%edf_basename
-				continue
+		
+		threads = []
+		if self.select_phi.get_active():			
+			plot_kphi = False
+		elif self.select_kphi.get_active():
+			plot_kphi = True
+		for img in range(total):
+			edf_basename = img_list[img]
+			t = Pole_Figure_load_data(img, self.edf_folder, edf_basename, pole_2theta, self.azimuthalIntegration, plot_kphi, detector_type=self.detector_type)
+			threads.append(t)
+			t.start()
 			processed +=1.
 			fr = processed/total
 			self.data_loading.set_fraction(fr)
@@ -3837,37 +3280,37 @@ class MyMainWindow(gtk.Window):
 			self.data_loading.set_show_text(True)
 			while gtk.events_pending():
 				gtk.main_iteration()
-
+		output = []
+		for t in threads:
+			t.join()
+			output.append(t.Data)
+			chi = t.chi
+			self.sample_tilt = t.chi_gonio
+			self.omega = t.omega
+			
+			
+		output.sort()
+		intensity = [o[1] for o in output]
+		phi_table = [o[2] for o in output]
 		intensity = N.asarray(intensity)
-		if logscale==1:
-			intensity = intensity+1e-6
-			intensity = N.log10(intensity)
+		phi_table = N.asarray(phi_table)
+		
 		if self.detector_type=="S70":
 			chi = chi + 90
 		else:
-			chi = chi-90
-		phi_table = N.asarray(phi_table)
-		
-		#Prendre la partie negative
-		if chi_gonio > 70:
-			b = chi.min()
-			a = (chi.max() - b)/(chi.shape[0])
-			x = (plot_chi_min - b)/a
-			x = int(x)
-			chi = chi[:x]
-			intensity = intensity[:,:x]
-		
+			chi = chi - 90
+				
 		return chi, phi_table, intensity
 
 	def coordinates_transform(self, psi, phi, tth):
 		#Transformer les coordonnees du detecteur en coordonnees polaires, avec phi et psi sont des matrices 2D, omega=angle incidente, tth=2theta bragg
 		#Ref: Marie-Ingrid Richard, J. Appl. Cryst. 46,(2013),1842
 		#tilt = self.sample_tilt
-		#tilt = 90-tilt
-		tilt = 0
-		omega= self.omega
-		phi = N.radians(phi)
-		psi = N.radians(psi)
+		tilt = 90 - self.sample_tilt
+		# tilt = 0
+		omega = self.omega
+		phi   = N.radians(phi)
+		psi   = N.radians(psi)
 		
 		cosPhi = N.cos(phi)
 		sinPhi = N.sin(phi)
@@ -3893,26 +3336,18 @@ class MyMainWindow(gtk.Window):
 		Rz = N.asarray(Rz)
 		#qLab=N.asarray(qLab)
 		
-		Rot = N.dot(N.dot(Rz,Rx),Ry) #Be careful of the order
-		#Rot = N.dot(N.dot(Rz,Ry),Rx)
-		qSample = N.dot(Rot, qLab)
-		psi_pole = N.arccos(abs(qSample[2]))
-		cosF    = qSample[0] / N.sqrt(qSample[0]**2 + qSample[1]**2)
-		sinF    = qSample[1] / N.sqrt(qSample[0]**2 + qSample[1]**2)
-		phi_pole = N.arccos(cosF)
-		neg = N.sign(sinF)<0
-		phi_pole[neg] = 2.0*N.pi-phi_pole[neg]
-		
-		return N.degrees(psi_pole), N.degrees(phi)
+		qSample = Rz.dot(Rx).dot(Ry).dot(qLab)
+		psi_pole = N.arctan2(N.sqrt(qSample[0]**2 + qSample[1]**2), qSample[2])
+		phi_pole = N.arctan2(qSample[1], qSample[0])
+		return psi_pole, phi_pole
 	
 	def plot_pole_figure(self,widget):
 		""" Click the PLOT button to plot the pole figure """
 		check = self.check_input_data()
 		if check:
-			negative_chi = 0
-			if self.detector_type is not "D1":
-				self.PF_psi, self.PF_phi, self.PF_intensity = self.load_data(self.img_deb, self.img_fin, self.pole_2theta, 0, logscale=self.log_scale)
-				self.plot_PF()
+			# if self.detector_type is not "D1":
+			self.PF_psi, self.PF_phi, self.PF_intensity = self.load_data(self.img_deb, self.img_fin, self.pole_2theta)
+			self.plot_PF()
 		else:
 			self.popup_info("error","Please make sure that you have correctly entered all of the fields!")
 		self.data_loading.hide()
@@ -3929,7 +3364,7 @@ class MyMainWindow(gtk.Window):
 		self.polar_cax.clear()
 		PF_data = self.PF_intensity.copy()
 		if self.log_scale == 1:
-			PF_data = flat_data(PF_data, self.vmin, self.vmax)
+			PF_data = flat_data(PF_data, self.vmin, self.vmax, True)
 			PF_data = N.log10(PF_data+1e-6)
 			clabel = r'$Log_{10}\ (Counts\ per\ second)\ [arb.\ units]$'
 			fmt = "%.1f"
@@ -3940,16 +3375,20 @@ class MyMainWindow(gtk.Window):
 			dynlow  = N.where(PF_data < self.vmin)
 			PF_data[dynhigh] = self.vmax
 			PF_data[dynlow]  = self.vmin
+		
 		psi,phi   = N.meshgrid(self.PF_psi,self.PF_phi)
 		
 		psi,phi = self.coordinates_transform(psi, phi, self.pole_2theta)
+		X = psi*N.cos(phi)
+		Y = psi*N.sin(phi)
+		clevels = N.linspace(self.vmin, self.vmax,50)
 		
-		phi = N.radians(phi)
-		clevels = N.linspace(self.vmin, self.vmax,30)
-		self.polar_img = self.polar_ax.contourf(phi, psi, PF_data, clevels, vmin=self.vmin, vmax=self.vmax)
-		self.polar_ax.set_rmin(psi.min())
-		#self.polar_ax.set_rmin(0)
-		#self.polar_ax.set_ylim(psi.min(), psi.max())
+		self.polar_img = self.polar_ax.contourf(X,Y, PF_data, clevels, vmin=self.vmin, vmax=self.vmax)
+		self.polar_ax.set_aspect('equal')
+		self.polar_ax.set_frame_on(False)
+		self.polar_ax.get_xaxis().set_ticks([])
+		self.polar_ax.get_yaxis().set_ticks([])
+		self.polar_ax.format_coord = self.pole_format_coord
 		self.polar_cb  = self.polefig.colorbar(self.polar_img,cax=self.polar_cax, format=fmt)
 		self.polar_cb.set_label(clabel, fontsize=18)
 		self.polar_cb.locator = MaxNLocator(nbins=6)
