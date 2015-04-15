@@ -12,6 +12,7 @@ import re, operator
 import gc
 from os import listdir
 from os.path import isfile,join
+import tempfile
 import math
 import numpy as N
 from numpy import unravel_index
@@ -45,8 +46,8 @@ import xrayutilities
 
 __author__="Tra NGUYEN THANH"
 __email__ = "thanhtra0104@gmail.com"
-__version__ = "2.0.4"
-__date__="13/04/2015"
+__version__ = "2.0.5"
+__date__="14/04/2015"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -123,7 +124,7 @@ class MyMainWindow(gtk.Window):
 		self.zoomtb = gtk.ToggleToolButton(gtk.STOCK_ZOOM_IN)
 		self.hometb = gtk.ToolButton(gtk.STOCK_HOME)
 		self.aspecttb = gtk.ToolButton(gtk.STOCK_PAGE_SETUP)
-		self.loadcalibtb = gtk.ToolButton(gtk.STOCK_CONVERT)
+		self.loadcalibtb = gtk.ToggleToolButton(gtk.STOCK_CONVERT)
 		self.use_dark_tb = gtk.ToggleToolButton(gtk.STOCK_DIALOG_INFO)
 
 		self.toolbar.insert(self.opentb, 0)
@@ -161,7 +162,7 @@ class MyMainWindow(gtk.Window):
 		self.zoomtb.connect("toggled", self.zoom_on)
 		self.hometb.connect("clicked", self.reset_image)
 		self.aspecttb.connect("clicked", self.change_aspect_ratio)
-		self.loadcalibtb.connect("clicked", self.load_calibration)
+		self.loadcalibtb.connect("toggled", self.load_calibration)
 		self.use_dark_tb.connect("toggled", self.get_dark)
 		self.graph_aspect = False
 		self.DARK_CORRECTION = False
@@ -190,7 +191,7 @@ class MyMainWindow(gtk.Window):
 		self.treeView.append_column(self.TVcolumn)
 
 		self.sw.add(self.treeView)
-		self.threads = list()  # This is to manage multithreading jobs
+		self.threads = []  # This is to manage multithreading jobs
 
 		self.current_folder = os.getcwd()
 		self.edf_folder     = self.current_folder
@@ -217,8 +218,10 @@ class MyMainWindow(gtk.Window):
 		geo_substrate_other = ""
 		geo_inplane  = "1 1 0"
 		geo_outplane = "0 0 1"
-		if isfile("Geo_config.DEVA"):
-			geoconfig_file = open("Geo_config.DEVA",'r+')
+		tmp_dir = tempfile.gettempdir()
+		geo_file_name = join(tmp_dir,"Geo_config.DEVA")
+		if isfile(geo_file_name):
+			geoconfig_file = open(geo_file_name,'r+')
 			for line in geoconfig_file:
 				if line.startswith("DISTANCE"):
 					geo_distance = line.split("=")[-1].split('\n')[0]
@@ -1173,28 +1176,38 @@ class MyMainWindow(gtk.Window):
 
 	def load_calibration(self, widget):
 		""" load a pre-calib file , PONI file """
-		dialog = gtk.FileChooserDialog("Select a PONI file",None,gtk.FILE_CHOOSER_ACTION_OPEN,(gtk.STOCK_CANCEL,gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
-		filtre = gtk.FileFilter()
-		filtre.set_name("PONI")
-		filtre.add_pattern("*.poni")
-		dialog.add_filter(filtre)
-		response = dialog.run()
-		if response == gtk.RESPONSE_OK:
-			self.ponifile = dialog.get_filename().decode('utf8')
-			print "Calibration file is: ",self.ponifile
-			self.azimuthalIntegration = pyFAI.load(self.ponifile)
+		if self.loadcalibtb.get_active():
+			dialog = gtk.FileChooserDialog("Select a PONI file",None,gtk.FILE_CHOOSER_ACTION_OPEN,(gtk.STOCK_CANCEL,gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
+			filtre = gtk.FileFilter()
+			filtre.set_name("PONI")
+			filtre.add_pattern("*.poni")
+			dialog.add_filter(filtre)
+			response = dialog.run()
+			if response == gtk.RESPONSE_OK:
+				self.ponifile = dialog.get_filename().decode('utf8')
+				print "Calibration file is: ",self.ponifile
+				self.azimuthalIntegration = pyFAI.load(self.ponifile)
 
-			self.calibrated = True
-			self.calibrated_quantitative = True
-			print "is calibrated? ",self.calibrated
-			# self.geometry_manual.set_active(False)
-			self.canvas.draw()
-			s = os.path.basename(self.ponifile)
-			self.popup_info("info","This detector is calibrated with the PONI file %s!!!"%s)
+				self.calibrated = True
+				self.calibrated_quantitative = True
+				print "is calibrated? ",self.calibrated
+				# self.geometry_manual.set_active(False)
+				self.canvas.draw()
+				s = os.path.basename(self.ponifile)
+				self.popup_info("info","This detector is calibrated with the PONI file %s!!!"%s)
+			else:
+				pass
+			dialog.destroy()
+			self.wavelength = self.azimuthalIntegration.wavelength
+			self.distance   = self.azimuthalIntegration.dist
+			self.energy     = xrayutilities.lam2en(self.wavelength)/1e10
+			self.direct_beam= [self.azimuthalIntegration.poni2/_PIXEL_SIZE, self.azimuthalIntegration.poni1/_PIXEL_SIZE]
+			self.geometry_energy.set_text(str(self.energy))
+			self.geometry_distance.set_text(str(self.distance))
+			self.geometry_direct_beam.set_text(str(self.direct_beam[0])+","+str(self.direct_beam[1]))
 		else:
-			pass
-		dialog.destroy()
-	
+			self.calibrated = False
+			self.calibrated_quantitative = False
 	def manual_calibration(self,widget):
 		"""Checking input data for geometry setup
 		"""
@@ -1242,8 +1255,8 @@ class MyMainWindow(gtk.Window):
 					self.experiment = xrayutilities.HXRD(self.substrate.Q(1,0,0),self.substrate.Q(0,0,1), en=self.energy, qconv=self.qconv)
 					
 		
-			
-		self.azimuthalIntegration = pyFAI.azimuthalIntegrator.AzimuthalIntegrator(dist=self.distance,
+		if not self.calibrated_quantitative:
+			self.azimuthalIntegration = pyFAI.azimuthalIntegrator.AzimuthalIntegrator(dist=self.distance,
 																					poni1=poni1,
 																					poni2=poni2,
 																					rot1=None,
@@ -1252,10 +1265,9 @@ class MyMainWindow(gtk.Window):
 																					pixel1=_PIXEL_SIZE,
 																					pixel2=_PIXEL_SIZE,
 																					wavelength=self.wavelength)
-		#self.experiment.Ang2Q.init_area('z+','y-', cch1=direct_beam[1], cch2=direct_beam[0], Nch1=Npx1,Nch2=Npx2, pwidth1=px1,pwidth2=px2, distance=distance, detrot=detrot, tiltazimuth=0, tilt=0)
+			#self.experiment.Ang2Q.init_area('z+','y-', cch1=direct_beam[1], cch2=direct_beam[0], Nch1=Npx1,Nch2=Npx2, pwidth1=px1,pwidth2=px2, distance=distance, detrot=detrot, tiltazimuth=0, tilt=0)
 		
-		self.calibrated=True
-		self.calibrated_quantitative = False
+			self.calibrated=True
 		MSSG = "Your parameters have been taken into account.\nEnergy = %s eV\nDistance = %s m\nDirect beam position: %s,%s\n"%(str(self.energy),str(self.distance),str(self.direct_beam[0]),str(self.direct_beam[1]))
 		if self.UB_MATRIX_LOAD:
 			MSSG+= "\nYou have imported a UB matrix. If you donot want to use this UB matrix anymore, click the browse button again.\n\nYour actual UB matrix is:\n%s"%str(self.UB_MATRIX)
@@ -1266,7 +1278,9 @@ class MyMainWindow(gtk.Window):
 			else:
 				MSSG+= "\nYou donot have a UB matrix, nor a substrate. A UB equal to unity will be applied\n"
 		self.popup_info("info",MSSG)
-		geo_file = open("Geo_config.DEVA","w")
+		tmp_dir  = tempfile.gettempdir()
+		geo_name = join(tmp_dir,"Geo_config.DEVA")
+		geo_file = open(geo_name,"w")
 		content  =""
 		content += "ENERGY="+str(self.energy)+"\n"
 		content += "DISTANCE="+str(self.distance)+"\n"
@@ -1707,11 +1721,11 @@ class MyMainWindow(gtk.Window):
 			output.append(t.Data)
 		while len(threads)>0:
 			threads.pop()
-		# gobject.timeout_add(200, self._callback)
+		gobject.timeout_add(200, self._callback)
 		output.sort()
 		self.SPEC_ACTUAL_SCAN_DATA   = [o[1] for o in output]
 		self.SPEC_ACTUAL_SCAN_HEADER = [o[2] for o in output]
-		print "Don't worry about the order printed above."
+		# print "Don't worry about the order printed above."
 		print "End."
 		#except:
 			#pass
@@ -1726,6 +1740,7 @@ class MyMainWindow(gtk.Window):
 		if not self.IMG_INIT:
 			self.init_image()
 		gc.collect()
+		del threads
 		return
 	
 	def check_and_update_scan_slider(self):
@@ -1981,55 +1996,60 @@ class MyMainWindow(gtk.Window):
 				
 				
 		print "Data processing ..."
-		# DATA = N.asarray(DATA)
-		th   = N.asarray(scan_motors[th_motor])
-		tth  = N.asarray(scan_motors[tth_motor])
-		chi  = 90-N.asarray(scan_motors['chi'])
-		phi  = N.asarray(scan_motors['phi'])
-		nu   = N.asarray(scan_motors['nu'])
-		if self.detector_type=="D1":
-			phi = N.delete(phi,bad_images)
-			tth = N.delete(tth, bad_images)
-			chi = N.delete(chi,bad_images)
-			th  = N.delete(th, bad_images)
-			nu  = N.delete(nu,bad_images)
-		if self.manip == "gisaxs" or self.manip == "saxsext" or self.experiment_type=="GISAXS":
-			tth = tth * 0.
-			nu  = nu * 0.
-		this_experiment = self.experiment
-		this_experiment.Ang2Q.init_area('z+','y-', cch1=cch1, cch2=cch2, Nch1=Nch1,Nch2=Nch2, 
-								  pwidth1=_PIXEL_SIZE,pwidth2=_PIXEL_SIZE, distance=self.distance, 
-								  Nav=default_nav, roi=default_roi)
-		if self.UB_MATRIX_LOAD:
-			h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area', U=self.UB_MATRIX)
-		else:
-			if self.has_substrate:
-				h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area', mat=self.substrate)
+		try:
+			th   = N.asarray(scan_motors[th_motor])
+			tth  = N.asarray(scan_motors[tth_motor])
+			chi  = 90-N.asarray(scan_motors['chi'])
+			phi  = N.asarray(scan_motors['phi'])
+			nu   = N.asarray(scan_motors['nu'])
+			if self.detector_type=="D1":
+				phi = N.delete(phi,bad_images)
+				tth = N.delete(tth, bad_images)
+				chi = N.delete(chi,bad_images)
+				th  = N.delete(th, bad_images)
+				nu  = N.delete(nu,bad_images)
+			if self.manip == "gisaxs" or self.manip == "saxsext" or self.experiment_type=="GISAXS":
+				tth = tth * 0.
+				nu  = nu * 0.
+			this_experiment = self.experiment
+			this_experiment.Ang2Q.init_area('z+','y-', cch1=cch1, cch2=cch2, Nch1=Nch1,Nch2=Nch2, 
+									  pwidth1=_PIXEL_SIZE,pwidth2=_PIXEL_SIZE, distance=self.distance, 
+									  Nav=default_nav, roi=default_roi)
+			if self.UB_MATRIX_LOAD:
+				h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area', U=self.UB_MATRIX)
 			else:
-				h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area')
-		nx = 50
-		ny = 50
-		nz = 50
-		gridder = xrayutilities.Gridder3D(nx,ny,nz)
-		gridder(h,k,l,DATA)
-		h,k,l = N.mgrid[gridder.xaxis.min():gridder.xaxis.max():1j*nx,
-							gridder.yaxis.min():gridder.yaxis.max():1j*ny,
-							gridder.zaxis.min():gridder.zaxis.max():1j*nz]
-		MAP_data  = gridder.data
-		maxint= N.log10(MAP_data.max())
-		MAP_data  = xrayutilities.maplog(MAP_data,maxint*0.5,1)
-		print "Plotting 3D image ..."
-		from mayavi import mlab
-		mlab.figure()
-		src  = mlab.pipeline.scalar_field(MAP_data)
-		src2 = mlab.pipeline.set_active_attribute(src,point_scalars='scalar')
-		mlab.pipeline.contour_surface(src2,contours=contour_level,opacity=0.5)
-		mlab.outline()
-		mlab.axes(nb_labels=5, ranges=(h.min(),h.max(),k.min(),k.max(),l.min(),l.max()), xlabel='H', ylabel='K', zlabel='L')
-		mlab.colorbar(title="log(intensity)", orientation="vertical")
-		mlab.show()
-		mlab.close(all=True)
+				if self.has_substrate:
+					h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area', mat=self.substrate)
+				else:
+					h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area')
+			nx = 50
+			ny = 50
+			nz = 50
+			gridder = xrayutilities.Gridder3D(nx,ny,nz)
+			gridder(h,k,l,DATA)
+			h,k,l = N.mgrid[gridder.xaxis.min():gridder.xaxis.max():1j*nx,
+								gridder.yaxis.min():gridder.yaxis.max():1j*ny,
+								gridder.zaxis.min():gridder.zaxis.max():1j*nz]
+			MAP_data  = gridder.data
+			maxint= N.log10(MAP_data.max())
+			MAP_data  = xrayutilities.maplog(MAP_data,maxint*0.5,1)
+			print "Plotting 3D image ..."
+			from mayavi import mlab
+			mlab.figure()
+			src  = mlab.pipeline.scalar_field(MAP_data)
+			src2 = mlab.pipeline.set_active_attribute(src,point_scalars='scalar')
+			mlab.pipeline.contour_surface(src2,contours=contour_level,opacity=0.5)
+			mlab.outline()
+			mlab.axes(nb_labels=5, ranges=(h.min(),h.max(),k.min(),k.max(),l.min(),l.max()), xlabel='H', ylabel='K', zlabel='L')
+			mlab.colorbar(title="log(intensity)", orientation="vertical")
+			mlab.show()
+			mlab.close(all=True)
+		except:
+			exc_type, exc_value, exc_traceback = sys.exc_info()
+			self.popup_info("warning", "ERROR: %s"%str(exc_value))
 		gc.collect()
+		return
+		
 	
 	def get_UB_from_spec(self,actual_scan):
 		header = actual_scan.header
@@ -2398,7 +2418,7 @@ class MyMainWindow(gtk.Window):
 				t.join()
 			while len(self.threads)>0:
 				self.threads.pop()
-			# gobject.timeout_add(200, self._callback)
+			gobject.timeout_add(200, self._callback)
 			if len(main_store)>0:
 				#main_store = sorted(main_store)
 				main_store = list_to_table(main_store,sort_col=2)
@@ -2414,6 +2434,7 @@ class MyMainWindow(gtk.Window):
 		else:
 			pass
 		dialog.destroy()
+		self.threads=[]
 		if self.DATA_IS_LOADED:
 			self.store_img = {}
 			for k in self.store.keys():
@@ -2436,7 +2457,7 @@ class MyMainWindow(gtk.Window):
 				t.join()
 			while len(self.threads)>0:
 				self.threads.pop()
-			# gobject.timeout_add(200, self._callback)
+			gobject.timeout_add(200, self._callback)
 			self.store_img = {}
 			for k in self.store.keys():
 				self.store_img[k] = get_column_from_table(self.TABLE_STORE[k],2)
@@ -2445,6 +2466,7 @@ class MyMainWindow(gtk.Window):
 				self.MODEL.append(None,[i[0]])
 			
 			self.DATA_IS_LOADED = True
+			self.threads =[]
 			#if self.SPEC_DATA:
 				#self.SPEC_DATA.Update()
 				#self.update_spec_data()
@@ -3252,6 +3274,7 @@ class MyMainWindow(gtk.Window):
 		pole_2theta: 2theta (degrees) to construct the pole figure
 		logscale: (1 or 0) to present the pole figure in log scale or linear scale
 		"""
+		gc.collect()
 		self.data_loading.show()
 		#Check where the images are
 		for k in self.store_img.keys():
@@ -3299,7 +3322,7 @@ class MyMainWindow(gtk.Window):
 			
 		while len(threads)>0:
 			threads.pop()
-		# gobject.timeout_add(200, self._callback)
+		gobject.timeout_add(200, self._callback)
 		output.sort()
 		intensity = [o[1] for o in output]
 		phi_table = [o[2] for o in output]
@@ -3310,7 +3333,7 @@ class MyMainWindow(gtk.Window):
 			chi = chi + 90
 		else:
 			chi = chi - 90
-				
+		del threads
 		return chi, phi_table, intensity
 
 	def coordinates_transform(self, psi, phi, tth):
@@ -3730,7 +3753,7 @@ class MyMainWindow(gtk.Window):
 	def _callback(self):
 		if threading.active_count() == 1:  # If only one left, scanning is done
 			return False  # False make callback stop
-		#print threading.active_count()
+		print threading.active_count()
 		return True
 #***********************************************************************************************
 #                                       FINISHED

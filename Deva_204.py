@@ -1194,6 +1194,13 @@ class MyMainWindow(gtk.Window):
 		else:
 			pass
 		dialog.destroy()
+		self.wavelength = self.azimuthalIntegration.wavelength
+		self.distance   = self.azimuthalIntegration.dist
+		self.energy     = xrayutilities.lam2en(self.wavelength)/1e10
+		self.direct_beam= [self.azimuthalIntegration.poni2/_PIXEL_SIZE, self.azimuthalIntegration.poni1/_PIXEL_SIZE]
+		self.geometry_energy.set_text(str(self.energy))
+		self.geometry_distance.set_text(str(self.distance))
+		self.geometry_direct_beam.set_text(str(self.direct_beam[0])+","+str(self.direct_beam[1]))
 	
 	def manual_calibration(self,widget):
 		"""Checking input data for geometry setup
@@ -1711,7 +1718,7 @@ class MyMainWindow(gtk.Window):
 		output.sort()
 		self.SPEC_ACTUAL_SCAN_DATA   = [o[1] for o in output]
 		self.SPEC_ACTUAL_SCAN_HEADER = [o[2] for o in output]
-		print "Don't worry about the order printed above."
+		# print "Don't worry about the order printed above."
 		print "End."
 		#except:
 			#pass

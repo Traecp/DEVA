@@ -4,13 +4,13 @@ D2AM EDF image Visualisation and Analysis - A software for 2D data analysis. Thi
 If you find any bug, please inform me at: thanhtra0104 @ gmail.com
 
 Thank you.
-
-**** For those who use git: it is possible to clone the git repository of DEVA from here: https://github.com/Traecp/DEVA.git
+'''
+For those who use git: it is possible to clone the git repository of DEVA from here: https://github.com/Traecp/DEVA.git
 
 git clone https://github.com/Traecp/DEVA.git
 
 Check the proxy setup if connection failed. See wiki for problems solved.
-
+'''
 DOCUMENTATION
 ==========================
 Please refer to the User Manual for How To Use this software. The manual is found in the "Manual" folder.
@@ -63,6 +63,6 @@ INSTALLATION on WINDOWS
 	
 RUNNING: 
 ==========================
-to run DEVA, just open a terminal wherever you want (or command prompt on Windows) and type: Deva.py or just Deva
++ To run DEVA, just open a terminal wherever you want (or command prompt on Windows) and type: Deva.py or just Deva
 + Please refer to the wiki pages for more detail about software usage.
 	
