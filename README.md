@@ -64,5 +64,4 @@ INSTALLATION on WINDOWS
 RUNNING: 
 ==========================
 + To run DEVA, just open a terminal wherever you want (or command prompt on Windows) and type: Deva.py or just Deva
-+ Please refer to the wiki pages for more detail about software usage.
 	
