@@ -1,16 +1,19 @@
+<img src="https://github.com/Traecp/DEVA/blob/master/Deva_205.png">
 DEVA
 ==========================
 D2AM EDF image Visualisation and Analysis - A software for 2D data analysis. This software deals with special geometry of XPAD area detectors.
 If you find any bug, please inform me at: thanhtra0104 @ gmail.com
 
 Thank you.
-'''
+
+```
 For those who use git: it is possible to clone the git repository of DEVA from here: https://github.com/Traecp/DEVA.git
 
 git clone https://github.com/Traecp/DEVA.git
 
 Check the proxy setup if connection failed. See wiki for problems solved.
-'''
+```
+
 DOCUMENTATION
 ==========================
 Please refer to the User Manual for How To Use this software. The manual is found in the "Manual" folder.
