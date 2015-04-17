@@ -26,6 +26,7 @@ from DEVA.ReadSpecD1 import *
 from DEVA.CommonFunctions import *
 from DEVA.GettingData_MultiThreading import *
 from DEVA.Geometry_Correction import *
+from DEVA.PlotPolarGrid import *
 
 ##############
 ## Graphic library ##
@@ -47,7 +48,7 @@ import xrayutilities
 __author__="Tra NGUYEN THANH"
 __email__ = "thanhtra0104@gmail.com"
 __version__ = "2.0.5"
-__date__="14/04/2015"
+__date__="17/04/2015"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -2025,7 +2026,9 @@ class MyMainWindow(gtk.Window):
 			nx = 50
 			ny = 50
 			nz = 50
+			print "Initializing data grid..."
 			gridder = xrayutilities.Gridder3D(nx,ny,nz)
+			print "Data gridding on a regular map..."
 			gridder(h,k,l,DATA)
 			h,k,l = N.mgrid[gridder.xaxis.min():gridder.xaxis.max():1j*nx,
 								gridder.yaxis.min():gridder.yaxis.max():1j*ny,
@@ -3427,7 +3430,8 @@ class MyMainWindow(gtk.Window):
 		self.polar_cb.set_label(clabel, fontsize=18)
 		self.polar_cb.locator = MaxNLocator(nbins=6)
 		title   = "2 Theta = %.2f Deg."%self.pole_2theta
-		self.polar_ax.text(0.5, 1.08, title, horizontalalignment='center', transform = self.polar_ax.transAxes, fontsize=20)
+		self.polar_ax.text(0.5, 1.08, title, horizontalalignment='center', transform = self.polar_ax.transAxes, verticalalignment="center", fontsize=20)
+		plotPolarGrid(self.polar_ax, abs(X).min(), X.max(), 6, 8)
 		self.polar_ax.relim()
 		self.pole_canvas.draw()
 	#***************************************************************************
