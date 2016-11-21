@@ -108,12 +108,12 @@ def fit(data_x,data_y,xc, arbitrary=False):
 	param_init = init(data_x,data_y,xc,arbitrary)
 	if data_x[0] > data_x[-1]:
 		data_x = data_x[::-1]
-	result = minimize(objective, param_init, args=(data_y,data_x))
+	result = minimize(objective, param_init, args=(data_y,data_x))#changed from lmfit 0.9: One must use result.params for optimized parameters
 
 	x = N.linspace(data_x.min(),data_x.max(),data_x.shape[0])
-	y = psdVoigt(param_init,x)
+	y = psdVoigt(result.params,x)
 
-	return param_init, y
+	return result.params, y
 
 def wpercentile(a, q, weights=None):
 	"""Compute weighted percentiles *q* [%] of input 1D-array *a*."""

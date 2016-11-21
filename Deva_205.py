@@ -31,6 +31,7 @@ from DEVA.PlotPolarGrid import *
 ##############
 ## Graphic library ##
 ##############
+from mayavi import mlab
 import matplotlib as mpl
 mpl.use('GtkAgg')
 from matplotlib.figure import Figure
@@ -1997,6 +1998,7 @@ class MyMainWindow(gtk.Window):
 				
 				
 		print "Data processing ..."
+		# gc.collect()
 		try:
 			th   = N.asarray(scan_motors[th_motor])
 			tth  = N.asarray(scan_motors[tth_motor])
@@ -2037,19 +2039,21 @@ class MyMainWindow(gtk.Window):
 			maxint= N.log10(MAP_data.max())
 			MAP_data  = xrayutilities.maplog(MAP_data,maxint*0.5,1)
 			print "Plotting 3D image ..."
-			from mayavi import mlab
-			mlab.figure()
+			# from mayavi import mlab
+			fig  = mlab.figure()
 			src  = mlab.pipeline.scalar_field(MAP_data)
 			src2 = mlab.pipeline.set_active_attribute(src,point_scalars='scalar')
-			mlab.pipeline.contour_surface(src2,contours=contour_level,opacity=0.5)
+			countour_img = mlab.pipeline.contour_surface(src2,contours=contour_level,opacity=0.5)
 			mlab.outline()
 			mlab.axes(nb_labels=5, ranges=(h.min(),h.max(),k.min(),k.max(),l.min(),l.max()), xlabel='H', ylabel='K', zlabel='L')
 			mlab.colorbar(title="log(intensity)", orientation="vertical")
 			mlab.show()
-			mlab.close(all=True)
+			
 		except:
 			exc_type, exc_value, exc_traceback = sys.exc_info()
 			self.popup_info("warning", "ERROR: %s"%str(exc_value))
+		mlab.close(all=True)
+		del gridder, DATA, MAP_data, fig, countour_img
 		gc.collect()
 		return
 		

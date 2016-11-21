@@ -2,6 +2,7 @@ setup.py
 DEVA/CommonFunctions.py
 DEVA/Geometry_Correction.py
 DEVA/GettingData_MultiThreading.py
+DEVA/Pilatus.py
 DEVA/PlotPolarGrid.py
 DEVA/PopUpWindows.py
 DEVA/ReadSpecD1.py
