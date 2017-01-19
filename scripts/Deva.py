@@ -71,7 +71,8 @@ class MyMainWindow(gtk.Window):
 	def __init__(self):
 		super(MyMainWindow, self).__init__()
 		self.set_title("DEVA - D2AM EDF Visualisation and Analysis - version %s - Last update: %s"%(__version__, __date__))
-		self.set_size_request(1230, 950)
+		# self.set_size_request(1230, 950)
+		self.set_size_request(1000, 850)
 		#self.modify_bg(gtk.STATE_NORMAL, gtk.gdk.Color(6400, 6400, 6440))
 		self.set_position(gtk.WIN_POS_CENTER)
 		self.set_border_width(5)
