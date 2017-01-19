@@ -4,7 +4,7 @@
 import fabio
 #import matplotlib.pyplot as plt
 import numpy as np
-from DEVA.xpad import libXpad as libX
+from DEVA.Geometry_Correction import correct_geometry
 from os.path import isfile,join
 
 PIXEL_SIZE = 130./1000 #milimeter
@@ -43,23 +43,7 @@ def image_correction(data):
 			if (data[r,c] > 20*data[r,c-1]) and (data[r,c] > 20*data[r,c+1]):
 				data[r,c] = (data[r,c-1]+data[r,c+1])/2.0
 	return data
-def correct_geometry(data, detector_type="D5"):
-	"""Correct image geometry of XPAD D5 detector
-	The default image shape is 960x560 """
-	if detector_type == "D5":
-		detector = libX.Detector()
-	elif detector_type == "S70":
-		detector = libX.Detector(nModules=1)
-	else:
-		return None
-	#Ajouter les gaps ## Code de Clement Buton @Soleil
-	detector.set_data(array=data)
-	detector.adjust_data()
-	detector.set_physical_data()
-	detector.reshape_pixels()
-	data = detector.physical.data
-	data = np.rot90(data)
-	return data
+
 def get_motors(header):
 	#Get a dictionnary like motors {name:position} from a header of an EDF image
 	motor_pos  = header['motor_pos'].split()
@@ -80,10 +64,10 @@ def get_counters(header):
 	
 def combine_edf(edf_1, edf_2, savename, detector_type="D5"):
 	
-	if detector_type == "S70":
-		DET_SIZE_X = 1148
+	if detector_type == "D5":
+		DET_SIZE_X = 1153
 		DET_SIZE_Y = 578
-	elif detector_type == "D5":
+	elif detector_type == "S70":
 		DET_SIZE_X = 120
 		DET_SIZE_Y = 578
 		

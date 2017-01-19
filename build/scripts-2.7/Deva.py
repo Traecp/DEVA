@@ -19,7 +19,6 @@ from numpy import unravel_index
 from scipy import ndimage, stats
 from scipy.fftpack import fft, fftfreq, fftshift
 from lmfit import Parameters, minimize
-from DEVA.xpad import libXpad as libX
 from DEVA.utilities import Combination_edf_by_translationXZ as EDF_XZ_combination
 from DEVA.PopUpWindows import *
 from DEVA.ReadSpecD1 import *
@@ -47,8 +46,8 @@ import xrayutilities
 
 __author__="Tra NGUYEN THANH"
 __email__ = "thanhtra0104@gmail.com"
-__version__ = "2.0.5"
-__date__="17/04/2015"
+__version__ = "3.0"
+__date__="17/01/2017"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -513,7 +512,7 @@ class MyMainWindow(gtk.Window):
 		self.right_panel = gtk.VBox(False,0)
 
 		self.detector_disposition_horizontal = gtk.ToggleButton("Vertical detector")
-		self.detector_disposition_horizontal.set_sensitive(False)
+		# self.detector_disposition_horizontal.set_sensitive(False)
 		self.detector_disposition_horizontal.connect("toggled", self.detector_disposition)
 		self.horizontal_detector = False #By default, the detector is in the vertical position, i.e. 960 rows x 560 cols
 
@@ -1206,6 +1205,33 @@ class MyMainWindow(gtk.Window):
 			self.geometry_energy.set_text(str(self.energy))
 			self.geometry_distance.set_text(str(self.distance))
 			self.geometry_direct_beam.set_text(str(self.direct_beam[0])+","+str(self.direct_beam[1]))
+			
+			tmp_dir  = tempfile.gettempdir()
+			geo_name = join(tmp_dir,"Geo_config.DEVA")
+			geo_file = open(geo_name,"w")
+			in_plane = self.geometry_substrate_inplane.get_text()
+			out_of_plane = self.geometry_substrate_outplane.get_text()
+			if in_plane != "" and out_of_plane != "":
+				in_plane = in_plane.split()
+				self.in_plane = N.asarray([int(i) for i in in_plane])
+				out_of_plane = out_of_plane.split()
+				self.out_of_plane = N.asarray([int(i) for i in out_of_plane])
+			content  =""
+			content += "ENERGY="+str(self.energy)+"\n"
+			content += "DISTANCE="+str(self.distance)+"\n"
+			content += "DIRECT_BEAM_XY="+str(self.direct_beam[0])+","+str(self.direct_beam[1])+"\n"
+			if self.has_substrate:
+				content += "HAS_SUBSTRATE=YES\n"
+				content += "SUBSTRATE="+substrate+"\n"
+			else:
+				content += "HAS_SUBSTRATE=NO\n"
+			
+			content += "INPLANE="+str(self.in_plane[0])+" "+str(self.in_plane[1])+" "+str(self.in_plane[2])+"\n"
+			content += "OUTPLANE="+str(self.out_of_plane[0])+" "+str(self.out_of_plane[1])+" "+str(self.out_of_plane[2])+"\n"
+			
+			geo_file.write(content)
+			geo_file.close()
+			print content
 		else:
 			self.calibrated = False
 			self.calibrated_quantitative = False
@@ -1223,9 +1249,7 @@ class MyMainWindow(gtk.Window):
 		poni1 = self.direct_beam[1]*_PIXEL_SIZE
 		poni2 = self.direct_beam[0]*_PIXEL_SIZE
 		self.wavelength = h*c/e/self.energy
-		
-		#qconv = xrayutilities.experiment.QConversion(['y-','x-','z+'],['z+','y-'],[1,0,0])
-		
+				
 		if self.UB_MATRIX_LOAD:
 			self.experiment = xrayutilities.HXRD([1,0,0],[0,0,1], en=self.energy, qconv=self.qconv)
 		else:
@@ -1299,22 +1323,10 @@ class MyMainWindow(gtk.Window):
 		geo_file.close()
 			
 	def calculation_angular_coordinates(self):
-		if self.detector_type=="D5":
-			self.tableTwoTheta = self.azimuthalIntegration.twoThetaArray((578,1148))
-			self.tableChi      = self.azimuthalIntegration.chiArray((578,1148))
-			self.tableChi      = N.degrees(self.tableChi)-90
-		
-		elif self.detector_type=="S70":
-			#self.azimuthalIntegration.setChiDiscAtZero()
-			self.tableTwoTheta = self.azimuthalIntegration.twoThetaArray((120,578))
-			self.tableChi      = self.azimuthalIntegration.chiArray((120,578))
-			self.tableChi      = N.degrees(self.tableChi)-90
-		elif self.detector_type=="D1":
-			self.tableTwoTheta = self.azimuthalIntegration.twoThetaArray((self.Dim1,self.Dim2))
-			self.tableChi      = self.azimuthalIntegration.chiArray((self.Dim1,self.Dim2))
-			self.tableChi      = N.degrees(self.tableChi)-90
-
-			
+		# if self.geometry_corrected:
+		self.tableTwoTheta = self.azimuthalIntegration.twoThetaArray((self.data.shape[0],self.data.shape[1]))
+		self.tableChi      = self.azimuthalIntegration.chiArray((self.data.shape[0],self.data.shape[1]))
+		self.tableChi      = N.degrees(self.tableChi)-90
 		self.table_dSpace = self.azimuthalIntegration.wavelength / (2*N.sin(self.tableTwoTheta/2.0)) * 1e10 #d in Angstrom
 		self.tableTwoTheta = N.degrees(self.tableTwoTheta)
 		
@@ -1843,7 +1855,7 @@ class MyMainWindow(gtk.Window):
 			
 			self.header = self.SPEC_ACTUAL_SCAN_HEADER[img_index]
 			if self.adj_btn.get_active():
-				if self.data.shape == (960,560) or self.data.shape == (120,560):
+				if self.data.size % 9600 == 0:
 					self.data = correct_geometry(self.data, detector_type=self.detector_type)
 			if self.horizontal_detector:
 				self.data = N.rot90(self.data)
@@ -1901,24 +1913,15 @@ class MyMainWindow(gtk.Window):
 		scan_motors = {}
 		cch1 = self.direct_beam[1]
 		cch2 = self.direct_beam[0]
-		if self.detector_type=="D5":
-			Nch1 = 578
-			Nch2 = 1148
-		elif self.detector_type=="S70":
-			Nch1 = 120
-			Nch2 = 578
-		elif self.detector_type == "D1":
-			dim = self.SPEC_ACTUAL_SCAN_DATA[0].shape
-			Nch1 = dim[0]
-			Nch2 = dim[1]
+		dim = self.SPEC_ACTUAL_SCAN_DATA[0].shape
+		Nch1 = dim[0]
+		Nch2 = dim[1]
 		# reduce data: number of pixels to average in each detector direction
 		default_nav = [4,4]
 		default_roi = [0,Nch1, 0,Nch2]  # region of interest on the detector
 		contour_level = 20
 		if self.detector_type == "S70":
 			contour_level = 30
-		
-		if self.detector_type=="S70":
 			default_nav = [1,1]
 		if self.detector_space_btn.get_active() and self.ROI_ON and self.ROI_DRAWN:
 			r = sorted([int(self.ROI_y0), int(self.ROI_y1)])
@@ -1941,7 +1944,7 @@ class MyMainWindow(gtk.Window):
 				# print "Loading image: ",self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]
 				motor=get_motors(self.SPEC_ACTUAL_SCAN_HEADER[i])			
 				data = self.SPEC_ACTUAL_SCAN_DATA[i]
-				if data.shape == (960,560) or data.shape == (120,560):
+				if data.size%9600 == 0:
 					data = correct_geometry(data, detector_type=self.detector_type)
 				if self.detector_type == "S70":
 					data = N.flipud(data)
@@ -2000,13 +2003,13 @@ class MyMainWindow(gtk.Window):
 		try:
 			th   = N.asarray(scan_motors[th_motor])
 			tth  = N.asarray(scan_motors[tth_motor])
-			chi  = 90-N.asarray(scan_motors['chi'])
+			chi  = N.asarray(scan_motors['chi'])
 			phi  = N.asarray(scan_motors['phi'])
 			nu   = N.asarray(scan_motors['nu'])
 			if self.detector_type=="D1":
 				phi = N.delete(phi,bad_images)
 				tth = N.delete(tth, bad_images)
-				chi = N.delete(chi,bad_images)
+				chi = 90-N.delete(chi,bad_images)
 				th  = N.delete(th, bad_images)
 				nu  = N.delete(nu,bad_images)
 			if self.manip == "gisaxs" or self.manip == "saxsext" or self.experiment_type=="GISAXS":
@@ -2185,34 +2188,27 @@ class MyMainWindow(gtk.Window):
 		#data = self.data.copy()
 		if self.detector_disposition_horizontal.get_active():
 			self.horizontal_detector = True
-			self.detector_disposition_horizontal.set_label("Horizontal detector")
-			if self.data.shape[0]>self.data.shape[1]:#self.data.shape != (578,1148):
-				self.data = N.rot90(self.data)
-			self.img.set_array(self.data)
-			#self.cb.ax.set_visible(False)
-			#self.cb2.ax.set_visible(True)
-		#self.img.set_extent((0,self.xDim,0,self.yDim))
+			self.detector_disposition_horizontal.set_label("Rotate back")
+			self.data = N.rot90(self.data)
 		else:
 			self.horizontal_detector = False
-			self.detector_disposition_horizontal.set_label("Vertical detector")
-
+			self.detector_disposition_horizontal.set_label("Rotate detector")
 			self.data = N.rot90(self.data,3)
-			self.img.set_array(self.data)
-			#self.cb.ax.set_visible(True)
-			#self.cb2.ax.set_visible(False)
+		self.img.set_array(self.data)
 
 		imshape = self.data.shape
 		self.xDim1 = imshape[1]
 		self.yDim1 = imshape[0]
+		self.MAIN_EXTENT =(0, self.xDim1, 0,self.yDim1)
 		if self.xDim1 > self.yDim1:
 			self.cb.ax.set_visible(False)
 			self.cb2.ax.set_visible(True)
 		else:
 			self.cb.ax.set_visible(True)
 			self.cb2.ax.set_visible(False)
-		self.img.set_extent((0,self.xDim1,0,self.yDim1))
-		self.ax.set_xlim(0,self.xDim1)
-		self.ax.set_ylim(0,self.yDim1)
+		self.img.set_extent(self.MAIN_EXTENT)
+		# self.ax.set_xlim(0,self.xDim1)
+		# self.ax.set_ylim(0,self.yDim1)
 		self.slider_update()
 
 	def calcul_chi_2theta_d(self,event):
@@ -2220,7 +2216,7 @@ class MyMainWindow(gtk.Window):
 		x = event.xdata
 		y = event.ydata
 		self.check_azimuthal_integrator()
-		chi = self.tableChi[y,x]# -90.#+ self.chi
+		chi = self.tableChi[y,x]
 		tth = self.tableTwoTheta[y,x]
 		d   = self.table_dSpace[y,x]
 		return chi, tth, d
@@ -2228,7 +2224,7 @@ class MyMainWindow(gtk.Window):
 	def show_chi_delta(self,widget):
 		""" If the show_chi_delta_btn is checked and the calibration file is loaded """
 		if self.show_chi_delta_btn.get_active():
-			if self.calibrated:
+			if self.calibrated and self.geometry_corrected:
 				self.show_chi_delta_flag = True
 				self.show_chi_txt.set_visible(True)
 				self.show_delta_txt.set_visible(True)
@@ -2236,7 +2232,7 @@ class MyMainWindow(gtk.Window):
 			else:
 				self.show_chi_delta_btn.set_active(False)
 				self.show_chi_delta_flag = False
-				self.popup_info("warning","Please calibrate the detector before checking this box!")
+				self.popup_info("warning","Please calibrate the detector and correct the detector's geometry before checking this box!")
 
 		else:
 			self.show_chi_delta_flag = False
@@ -2280,15 +2276,7 @@ class MyMainWindow(gtk.Window):
 					self.show_chi_txt.set_text("Chi = %.2f"%chi)
 					self.show_delta_txt.set_text("2Theta = %.2f"%tth)
 					self.show_d_txt.set_text("d = %.4f A"%d)
-				#elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active():
-					#h = event.xdata
-					#k = event.ydata
-					#l = 
-					
-					#self.show_chi_txt.set_text("H = %.2f"%h)
-					#self.show_delta_txt.set_text("K = %.2f"%k)
-					#self.show_d_txt.set_text("L = %.2f"%l)
-	
+				
 	def zoom_on(self,widget):
 		"""For the Zoom button"""
 		if self.zoomtb.get_active():
@@ -2533,35 +2521,20 @@ class MyMainWindow(gtk.Window):
 		if self.calibrated == False:
 			self.popup_info('warning','Please calibrate the detector before checking this!')
 			self.tth_chi_space_btn.set_active(False)
-		elif self.calibrated==True:
+		elif self.calibrated==True and self.geometry_corrected==True:
 			#self.show_chi_delta_btn.set_sensitive(False)
 			self.show_chi_delta_flag=self.show_chi_delta_btn.get_active()
 			self.check_azimuthal_integrator()
-			if self.data.shape == (578,1148) and self.detector_type=="D5":
-				self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,578,1148,unit="2th_deg")
-				self.chi_pyFAI = self.chi_pyFAI - 90#180 + self.chi
-			elif self.data.shape==(1148,578) and self.detector_type=="D5":
-				self.data = N.rot90(self.data)
-				self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,578,1148,unit="2th_deg")
-				self.chi_pyFAI = self.chi_pyFAI - 90# 180 + self.chi
-			elif self.data.shape==(120,578) and self.detector_type=="S70":
-				self.azimuthalIntegration.setChiDiscAtZero()
-				self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,120,578,unit="2th_deg")
-				self.chi_pyFAI = self.chi_pyFAI -90
-			#elif self.data.shape==(578,120) and self.detector_type=="S70":
-				#self.data = N.rot90(self.data)
-				##self.azimuthalIntegration.setChiDiscAtZero()
-				#self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,120,578,unit="2th_deg")
-				#self.chi_pyFAI = self.chi_pyFAI -90
-			elif self.detector_type=="D1":
-				self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,self.data.shape[0], self.data.shape[1],unit="2th_deg")
-				self.chi_pyFAI = self.chi_pyFAI - 90.#A corriger avec chi gonio
-			else:
-				self.popup_info('warning',"Please correct the detector's geometry prior to proceed this operation!")
-				self.tth_chi_space_btn.set_active(False)
 			
+			self.azimuthalIntegration.setChiDiscAtZero()
+			self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,self.data.shape[0],self.data.shape[1],unit="2th_deg")
+			self.chi_pyFAI = self.chi_pyFAI - 90
 			self.MAIN_EXTENT = (self.tth_pyFAI.min(), self.tth_pyFAI.max(), self.chi_pyFAI.min(), self.chi_pyFAI.max())
-	
+			
+		else:
+			self.popup_info('warning',"Please correct the detector's geometry prior to proceed this operation!")
+			self.tth_chi_space_btn.set_active(False)
+
 	def Reciprocal_space_plot(self,space="HK"):
 		""" space should be HK, HL or KL """
 		if self.calibrated == False:
@@ -2570,7 +2543,7 @@ class MyMainWindow(gtk.Window):
 			self.hl_space_btn.set_active(False)
 			self.kl_space_btn.set_active(False)
 			self.tth_chi_space_btn.set_active(False)
-		elif self.calibrated==True:
+		elif self.calibrated==True and self.geometry_corrected==True:
 			self.show_chi_delta_btn.set_sensitive(False)
 			self.show_chi_delta_flag=False
 			self.check_azimuthal_integrator()
@@ -2598,77 +2571,49 @@ class MyMainWindow(gtk.Window):
 			PHI = self.phi 
 			NU  = tiltazimuth
 			DEL = tilt
-			if self.data.shape == (578,1148) and self.detector_type=="D5":
-				Nch1 = 578
-				Nch2 = 1148
-				flag = True
-			elif self.data.shape==(1148,578) and self.detector_type=="D5":
-				self.data = N.rot90(self.data)
-				Nch1 = 578
-				Nch2 = 1148
-				flag = True
-			elif self.data.shape==(120,578) and self.detector_type=="S70":
-				Nch1 = 120
-				Nch2 = 578
-				flag = True
-			elif self.data.shape==(578,120) and self.detector_type=="S70":
-				self.data = N.rot90(self.data)
-				Nch1 = 120
-				Nch2 = 578
-				flag = True
-			elif self.detector_type=="D1":
-				Nch1 = self.data.shape[0]
-				Nch2 = self.data.shape[1]
-				flag = True
-			#elif self.data.shape == (913,577) and self.detector_type=="D1":
-				#self.data = N.rot90(self.data)
-				#Nch1 = 577
-				#Nch2 = 913
-				#flag = True
-			else:
-				flag = False
 			
-			if flag:
-				
-				if self.detector_type != "S70":
-					dim1 = 800
-					dim2 = 300
-				else:
-					dim1 = 400
-					dim2 = 100
-				self.experiment.Ang2Q.init_area('z+','y-', cch1=cch1, cch2=cch2, Nch1=Nch1,Nch2=Nch2, pwidth1=_PIXEL_SIZE,pwidth2=_PIXEL_SIZE, distance=distance, detrot=detrot)
-				if self.UB_MATRIX_LOAD:
-					#self.Qx,self.Qy,self.Qz = self.experiment.Ang2Q.area(ETA,CHI,PHI,NU,DEL, UB = self.UB_MATRIX)
-					self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL,dettype='area', U = self.UB_MATRIX)
-				else:
-					#self.Qx,self.Qy,self.Qz = self.experiment.Ang2Q.area(ETA,CHI,PHI,NU,DEL)
-					if self.has_substrate:
-						self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL, mat=self.substrate, dettype='area')
-					else:
-						self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL, dettype='area')
-				
-				self.QGridder = xrayutilities.Gridder2D(dim1, dim2)
-				if space=="HK":
-					self.QGridder(self.H, self.K, self.data)
-				elif space=="HL":
-					self.QGridder(self.H, self.L, self.data)
-				elif space=="KL":
-					self.QGridder(self.K, self.L, self.data)
-				self.data = self.QGridder.data.T
-				self.MAIN_EXTENT = (self.QGridder.xaxis.min(), self.QGridder.xaxis.max(), self.QGridder.yaxis.min(), self.QGridder.yaxis.max())
-				
-				
+			Nch1 = self.data.shape[0]
+			Nch2 = self.data.shape[1]
+			
+			#pixel binning to reduce memory consumption
+			if self.detector_type != "S70":
+				dim1 = 800
+				dim2 = 300
 			else:
-				self.popup_info('warning','Please correct the geometry of the detector prior to proceed this operation!')
-				self.hk_space_btn.set_active(False)
-				self.hl_space_btn.set_active(False)
-				self.kl_space_btn.set_active(False)
+				dim1 = 400
+				dim2 = 100
+			self.experiment.Ang2Q.init_area('z+','y-', cch1=cch1, cch2=cch2, Nch1=Nch1,Nch2=Nch2, pwidth1=_PIXEL_SIZE,pwidth2=_PIXEL_SIZE, distance=distance, detrot=detrot)
+			if self.UB_MATRIX_LOAD:
+				self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL,dettype='area', U = self.UB_MATRIX)
+			else:
+				if self.has_substrate:
+					self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL, mat=self.substrate, dettype='area')
+				else:
+					self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL, dettype='area')
+			
+			self.QGridder = xrayutilities.Gridder2D(dim1, dim2)
+			if space=="HK":
+				self.QGridder(self.H, self.K, self.data)
+			elif space=="HL":
+				self.QGridder(self.H, self.L, self.data)
+			elif space=="KL":
+				self.QGridder(self.K, self.L, self.data)
+			self.data = self.QGridder.data.T
+			self.MAIN_EXTENT = (self.QGridder.xaxis.min(), self.QGridder.xaxis.max(), self.QGridder.yaxis.min(), self.QGridder.yaxis.max())
+			
+				
+		else:
+			self.popup_info('warning','Please correct the geometry of the detector prior to proceed this operation!')
+			self.hk_space_btn.set_active(False)
+			self.hl_space_btn.set_active(False)
+			self.kl_space_btn.set_active(False)
 				
 			#print self.MAIN_EXTENT
 	
 	def plot_data(self):
 		"""plot the selected edf image"""
 		self.data = self.fabioIMG.data
+		self.geometry_corrected = False
 		if self.DARK_CORRECTION:
 			try:
 				self.data = self.data - self.DARK_DATA
@@ -2683,49 +2628,24 @@ class MyMainWindow(gtk.Window):
 		
 		### Calculate the median and the deviation of this data ###
 		self.med, self.nMAD = median_stats(self.data)
-		#If the loaded EDF image is already adjusted, shape = (578,1148)
-		if self.detector_type=="D5":
-			self.detector = libX.Detector()
-			if self.data.shape != (960,560):
-				self.adj_btn.set_sensitive(False)
-				adjust = False
-			else:
-				self.adj_btn.set_sensitive(True)
-				adjust = self.adj_btn.get_active()
-
-		elif self.detector_type == "D1":
+		#If the loaded EDF image is already adjusted, the size of the image is not divided by 9600, i.e size%9600 !=0
+		# 9600 = 120*80 = the size of one module
+		if self.data.size%9600 == 0:
+			self.adj_btn.set_sensitive(True)
+			adjust = self.adj_btn.get_active()
+		else:
 			self.adj_btn.set_sensitive(False)
 			adjust = False
-
-		elif self.detector_type=="S70":
-			self.detector = libX.Detector(nModules=1)
-
-			if self.data.shape != (120,560):
-				self.adj_btn.set_sensitive(False)
-				adjust = False
-			else:
-				self.adj_btn.set_sensitive(True)
-				adjust = self.adj_btn.get_active()
-				
+			self.geometry_corrected = True
+		
 		if adjust:
+			self.data = correct_geometry(self.data,detector_type=self.detector_type)
+			self.geometry_corrected = True
 
-			self.detector.set_data(array=self.data)
-			self.detector.adjust_data()
-			self.detector.set_physical_data()
-			self.detector.reshape_pixels()
-			self.data = self.detector.physical.data
-
-		imshape = self.data.shape
-		self.xDim0=0
-		self.yDim0=0
-		if self.horizontal_detector == True and imshape != (578,1148):
-			self.xDim1 = imshape[0]
-			self.yDim1 = imshape[1]
+		if self.horizontal_detector == True:
 			self.data = N.rot90(self.data) #rotation in the clock-wise direction - right rotation
-		else:
-			self.xDim1 = imshape[1]
-			self.yDim1 = imshape[0]
-		self.MAIN_EXTENT = (self.xDim0, self.xDim1, self.yDim0, self.yDim1)
+		
+		self.MAIN_EXTENT = (0, self.data.shape[1], 0, self.data.shape[0])
 		
 		if self.tth_chi_space_btn.get_active():
 			self.Angular_space_plot()
@@ -3535,7 +3455,7 @@ class MyMainWindow(gtk.Window):
 		#normalisation: True, False
 		#dark_img: fabio object for dark image
 		if detector_type == "D5":
-			DET_SIZE_X = 1148
+			DET_SIZE_X = 1153
 			DET_SIZE_Y = 578
 		elif detector_type == "S70":
 			DET_SIZE_X = 120
@@ -3555,10 +3475,10 @@ class MyMainWindow(gtk.Window):
 		counter_1 = get_counters(img_1.header)
 		counter_2 = get_counters(img_2.header)
 		
-		if data_1.shape==(960,560) or data_1.shape==(120,560):
+		if data_1.size%9600==0:
 			data_1 = EDF_XZ_combination.correct_geometry(data_1, detector_type = detector_type)
 			#img_1.data = d
-		if data_2.shape==(960,560) or data_2.shape==(120,560):
+		if data_2.size%9600==0:
 			data_2 = EDF_XZ_combination.correct_geometry(data_2, detector_type = detector_type)
 			#img_2.data = d
 		
@@ -3618,12 +3538,8 @@ class MyMainWindow(gtk.Window):
 		Corriger les lignes mortes, nettoyer les pixels chauds
 		Normaliser avec le Imachine = 200 mA: Icorr = Imesure*monitor_ref(@200 mA)/monitor_mesure, cela donne les intensites en CPS
 		"""
-		if self.t2_det_combobox.get_active_text() == "D5":
-			detector = libX.Detector()
-		elif self.t2_det_combobox.get_active_text() == "S70":
-			detector = libX.Detector(nModules=1)
-		else:
-			self.popup_info("warning","Please specify the detector model.")
+		detector_type = self.t2_det_combobox.get_active_text()
+		
 		edf_img = fabio.open(edf)
 		data = edf_img.data#edfFile.data
 		header = edf_img.header#edfFile.header
@@ -3634,14 +3550,8 @@ class MyMainWindow(gtk.Window):
 			counters[counter_name[i]] = float(counter_value[i])
 		monitor_col = self.t2_mon_combobox.get_active_text()
 		monitor = counters[monitor_col]
-		#Ajouter les gaps ## Code de Clement Buton @Soleil
-		detector.set_data(array=data)
-		detector.adjust_data()
-		detector.set_physical_data()
-		detector.reshape_pixels()
-		data = detector.physical.data
-		data = N.rot90(data)
-		
+		#Ajouter les gaps #
+		data = correct_geometry(data, detector_type=detector_type)
 		#Image cleaning for XPAD D5
 		if self.t2_det_combobox.get_active_text() == "D5":
 			data = EDF_XZ_combination.image_correction(data)

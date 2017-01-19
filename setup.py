@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 __author__ = 'Tra NGUYEN THANH <thanh-tra.nguyen@esrf.fr>'
-__version__ = '2.0.5'
+__version__ = '3.0'
 __adv__ = 'setup.py'
 
 
@@ -17,7 +17,6 @@ except ImportError:
 name = 'DEVA'
 
 # Packages (subdirectories in lib/)
-#packages = [name, name+'.pyFAI', name+'.utilities', name+'.xpad', name+'.xrayutilities', name+'.xrayutilities/io']
 packages = [name, name+'.utilities', name+'.xpad']
 
 # Scripts (in scripts/)

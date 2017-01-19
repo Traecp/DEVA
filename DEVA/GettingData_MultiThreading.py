@@ -59,7 +59,7 @@ class Pole_Figure_load_data(threading.Thread):
 		# MAIN_LOCK.acquire()
 		img = fabio.open(self.edf)
 		this_motor = get_motors(img.header)
-		if img.data.shape == (960,560) or img.data.shape == (120,560):
+		if img.data.size%9600==0:
 			data = correct_geometry(img.data, detector_type=self.detector_type)
 			data = N.rot90(data)
 			img.data = data 
@@ -91,7 +91,7 @@ def Pole_Figure_load_data_process(queue, img_nbr, edf_folder, edf_basename, pole
 	edf = join(edf_folder, edf_basename)
 	img = fabio.open(edf)
 	this_motor = get_motors(img.header)
-	if img.data.shape == (960,560) or img.data.shape == (120,560):
+	if img.data.size%9600==0:
 		data = correct_geometry(img.data, detector_type=detector_type)
 		data = N.rot90(data)
 		img.data = data 

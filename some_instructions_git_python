@@ -1,0 +1,26 @@
+git filter-branch --force --index-filter 'git rm --cached -r --ignore-unmatch oops.iso' --prune-empty --tag-name-filter cat -- --all
+rm -rf .git/refs/original/
+git reflog expire --expire=now --all
+git gc --prune=now
+git gc --aggressive --prune=now
+
+
+
+To make windows distribution msi: python setup.py bdist_msi
+To install wheel packgage: pip install --no-index --find-links="wheel package.whl" package_name
+
+For the _backend_gdk module missing problem:
+install first the tk, tk-dev, python-gtk2-dev, libgtk2.0-dev, pygtk (https://pypi.python.org/pypi/PyGTK)
+then download and compile matplotlib from source. Matplotlib will now support GTK backend.
+
+
+If Virtualbox ubuntu is used behind a proxy, apt-get gets stuck. To solve this:
+Create a new file: /etc/apt/apt.conf.d/01proxy
+
+Add these lines:
+
+Acquire::http::Proxy "http://askubuntu-proxy.com:8080";
+Acquire::https::Proxy "https://askubuntu-proxy.com:8080";
+Acquire::ftp::Proxy "ftp://askubuntu-proxy.com:8080";
+
+save it. That's it.
