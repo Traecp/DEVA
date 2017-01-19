@@ -511,9 +511,11 @@ class MyMainWindow(gtk.Window):
 
 		self.right_panel = gtk.VBox(False,0)
 
-		self.detector_disposition_horizontal = gtk.ToggleButton("Vertical detector")
+		# self.detector_disposition_horizontal = gtk.ToggleButton("Rotate detector")
+		self.detector_disposition_horizontal = gtk.Button("Rotate detector")
+		self.rotate_detector_n = 0
 		# self.detector_disposition_horizontal.set_sensitive(False)
-		self.detector_disposition_horizontal.connect("toggled", self.detector_disposition)
+		self.detector_disposition_horizontal.connect("clicked", self.detector_disposition)
 		self.horizontal_detector = False #By default, the detector is in the vertical position, i.e. 960 rows x 560 cols
 
 		self.linear_scale_btn = gtk.ToggleButton("Log scale")
@@ -539,6 +541,9 @@ class MyMainWindow(gtk.Window):
 		
 		self.kl_space_btn = gtk.RadioButton(self.detector_space_btn, "KL map")
 		self.kl_space_btn.connect("toggled", self.plot_update)
+		
+		self.q_space_btn = gtk.RadioButton(self.detector_space_btn, "Q map")
+		self.q_space_btn.connect("toggled", self.plot_update)
 
 		self.save_adj_btn = gtk.Button("Save Corrected EDF")
 		self.save_adj_btn.connect("clicked",self.save_adjust)
@@ -571,9 +576,10 @@ class MyMainWindow(gtk.Window):
 		self.option_table.attach(self.arbitrary_profiles_btn,0,1,4,5)
 		
 		self.option_table.attach(self.tth_chi_space_btn,1,2,1,2)
-		self.option_table.attach(self.hk_space_btn, 1,2,2,3)
-		self.option_table.attach(self.hl_space_btn, 1,2,3,4)
-		self.option_table.attach(self.kl_space_btn, 1,2,4,5)
+		# self.option_table.attach(self.hk_space_btn, 1,2,2,3)
+		self.option_table.attach(self.q_space_btn, 1,2,2,3)
+		self.option_table.attach(self.kl_space_btn, 1,2,3,4)
+		# self.option_table.attach(self.kl_space_btn, 1,2,4,5)
 		
 		self.option_table.attach(self.show_chi_delta_btn,2,3,1,2)
 		self.option_table.attach(self.show_delta_txt,2,3,2,3)
@@ -1139,6 +1145,9 @@ class MyMainWindow(gtk.Window):
 		elif self.kl_space_btn.get_active():
 			self.MAIN_XLABEL.set_text(r"$K\ (R.L.U)$")
 			self.MAIN_YLABEL.set_text(r"$L\ (R.L.U)$")
+		elif self.q_space_btn.get_active():
+			self.MAIN_XLABEL.set_text(r"$Qy\ (nm^{-1})$")
+			self.MAIN_YLABEL.set_text(r"$Qz\ (nm^{-1})$")
 		else:
 			self.MAIN_XLABEL.set_text("X (pixel)")
 			self.MAIN_YLABEL.set_text("Y (pixel)")
@@ -1306,6 +1315,16 @@ class MyMainWindow(gtk.Window):
 		tmp_dir  = tempfile.gettempdir()
 		geo_name = join(tmp_dir,"Geo_config.DEVA")
 		geo_file = open(geo_name,"w")
+		in_plane = self.geometry_substrate_inplane.get_text()
+		out_of_plane = self.geometry_substrate_outplane.get_text()
+		if in_plane != "" and out_of_plane != "":
+			in_plane = in_plane.split()
+			self.in_plane = N.asarray([int(i) for i in in_plane])
+			out_of_plane = out_of_plane.split()
+			self.out_of_plane = N.asarray([int(i) for i in out_of_plane])
+		else:
+			self.in_plane = ""
+			self.out_of_plane = ""
 		content  =""
 		content += "ENERGY="+str(self.energy)+"\n"
 		content += "DISTANCE="+str(self.distance)+"\n"
@@ -1368,6 +1387,9 @@ class MyMainWindow(gtk.Window):
 
 	def check_azimuthal_integrator(self):
 		if not self.calibrated_quantitative:
+			if self.manip == "gisaxs" or self.manip == "saxsext" or self.experiment_type=="GISAXS":
+				self.nu = 0.0
+				self.delta = 0.0
 			rot1 = N.radians(self.nu)*(-1.)
 			rot2 = N.radians(self.delta)*(-1.)
 			rot3 = N.radians(90-self.chi)
@@ -1799,7 +1821,7 @@ class MyMainWindow(gtk.Window):
 			y2 = get_index(self.chi_pyFAI, self.ROI_y1)
 			r  = sorted([y1,y2])
 			c  = sorted([x1,x2])
-		elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active():
+		elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active() or self.q_space_btn.get_active():
 			x1 = get_index(self.QGridder.xaxis, self.ROI_x0)
 			x2 = get_index(self.QGridder.xaxis, self.ROI_x1)
 			y1 = get_index(self.QGridder.yaxis, self.ROI_y0)
@@ -1881,7 +1903,8 @@ class MyMainWindow(gtk.Window):
 				self.Reciprocal_space_plot(space="HL")
 			elif self.kl_space_btn.get_active():
 				self.Reciprocal_space_plot(space="KL")
-			
+			elif self.q_space_btn.get_active():
+				self.Reciprocal_space_plot(space="Q")
 			#print "Data shape: ",self.data.shape
 			if self.ROI_ON and self.ROI_DRAWN:
 				self.SCAN_ROI_INTEGRATION_X.append(this_motor_value)
@@ -2186,14 +2209,19 @@ class MyMainWindow(gtk.Window):
 	def detector_disposition(self,widget):
 		""" Set detector vertically or horizontally """
 		#data = self.data.copy()
-		if self.detector_disposition_horizontal.get_active():
-			self.horizontal_detector = True
-			self.detector_disposition_horizontal.set_label("Rotate back")
-			self.data = N.rot90(self.data)
-		else:
-			self.horizontal_detector = False
-			self.detector_disposition_horizontal.set_label("Rotate detector")
-			self.data = N.rot90(self.data,3)
+		# if self.detector_disposition_horizontal.get_active():
+			# self.horizontal_detector = True
+			# self.detector_disposition_horizontal.set_label("Rotate back")
+			# self.data = N.rot90(self.data)
+		# else:
+			# self.horizontal_detector = False
+			# self.detector_disposition_horizontal.set_label("Rotate detector")
+			# self.data = N.rot90(self.data,3)
+		self.rotate_detector_n +=1
+		if self.rotate_detector_n == 3:
+			self.rotate_detector_n = 0
+		
+		self.data = N.rot90(self.data,self.rotate_detector_n)
 		self.img.set_array(self.data)
 
 		imshape = self.data.shape
@@ -2250,7 +2278,7 @@ class MyMainWindow(gtk.Window):
 				x = get_index(self.tth_pyFAI, xdata)
 				y = get_index(self.chi_pyFAI, ydata)
 				zdata = self.data[y,x]
-			elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active():
+			elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active() or self.q_space_btn.get_active():
 				x = get_index(self.QGridder.xaxis, xdata)
 				y = get_index(self.QGridder.yaxis, ydata)
 				#print "x=%d y=%d"%(x,y)
@@ -2341,7 +2369,7 @@ class MyMainWindow(gtk.Window):
 			self.xDim1 = self.tth_pyFAI.max()
 			self.yDim0 = self.chi_pyFAI.min()
 			self.yDim1 = self.chi_pyFAI.max()
-		if self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active():
+		if self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active() or self.q_space_btn.get_active():
 			self.xDim0 = self.QGridder.xaxis.min()
 			self.xDim1 = self.QGridder.xaxis.max()
 			self.yDim0 = self.QGridder.yaxis.min()
@@ -2511,6 +2539,10 @@ class MyMainWindow(gtk.Window):
 		elif self.kl_space_btn.get_active():
 			self.MAIN_XLABEL.set_text(r"$K\ (R.L.U)$")
 			self.MAIN_YLABEL.set_text(r"$L\ (R.L.U)$")
+		elif self.q_space_btn.get_active():
+			self.MAIN_XLABEL.set_text(r"$Qy\ (nm^{-1})$")
+			self.MAIN_YLABEL.set_text(r"$Qz\ (nm^{-1})$")
+			
 		else:
 			self.MAIN_XLABEL.set_text("X (pixel)")
 			self.MAIN_YLABEL.set_text("Y (pixel)")
@@ -2542,6 +2574,7 @@ class MyMainWindow(gtk.Window):
 			self.hk_space_btn.set_active(False)
 			self.hl_space_btn.set_active(False)
 			self.kl_space_btn.set_active(False)
+			self.q_space_btn.set_active(False)
 			self.tth_chi_space_btn.set_active(False)
 		elif self.calibrated==True and self.geometry_corrected==True:
 			self.show_chi_delta_btn.set_sensitive(False)
@@ -2576,20 +2609,23 @@ class MyMainWindow(gtk.Window):
 			Nch2 = self.data.shape[1]
 			
 			#pixel binning to reduce memory consumption
-			if self.detector_type != "S70":
-				dim1 = 800
-				dim2 = 300
-			else:
-				dim1 = 400
-				dim2 = 100
+			# if self.detector_type != "S70":
+			dim1 = self.data.shape[0]/3
+			dim2 = self.data.shape[1]/3
+			# else:
+				# dim1 = 400
+				# dim2 = 100
 			self.experiment.Ang2Q.init_area('z+','y-', cch1=cch1, cch2=cch2, Nch1=Nch1,Nch2=Nch2, pwidth1=_PIXEL_SIZE,pwidth2=_PIXEL_SIZE, distance=distance, detrot=detrot)
 			if self.UB_MATRIX_LOAD:
 				self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL,dettype='area', U = self.UB_MATRIX)
+				self.QX,self.QY,self.QZ = self.experiment.Ang2Q.area(ETA,CHI,PHI,NU,DEL, UB = self.UB_MATRIX)
 			else:
 				if self.has_substrate:
 					self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL, mat=self.substrate, dettype='area')
+					self.QX,self.QY,self.QZ = self.experiment.Ang2Q.area(ETA,CHI,PHI,NU,DEL)
 				else:
 					self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL, dettype='area')
+					self.QX,self.QY,self.QZ = self.experiment.Ang2Q.area(ETA,CHI,PHI,NU,DEL)
 			
 			self.QGridder = xrayutilities.Gridder2D(dim1, dim2)
 			if space=="HK":
@@ -2598,6 +2634,8 @@ class MyMainWindow(gtk.Window):
 				self.QGridder(self.H, self.L, self.data)
 			elif space=="KL":
 				self.QGridder(self.K, self.L, self.data)
+			elif space=="Q":
+				self.QGridder(self.QY, self.QZ, self.data)
 			self.data = self.QGridder.data.T
 			self.MAIN_EXTENT = (self.QGridder.xaxis.min(), self.QGridder.xaxis.max(), self.QGridder.yaxis.min(), self.QGridder.yaxis.max())
 			
@@ -2607,6 +2645,7 @@ class MyMainWindow(gtk.Window):
 			self.hk_space_btn.set_active(False)
 			self.hl_space_btn.set_active(False)
 			self.kl_space_btn.set_active(False)
+			self.q_space_btn.set_active(False)
 				
 			#print self.MAIN_EXTENT
 	
@@ -2642,9 +2681,9 @@ class MyMainWindow(gtk.Window):
 			self.data = correct_geometry(self.data,detector_type=self.detector_type)
 			self.geometry_corrected = True
 
-		if self.horizontal_detector == True:
-			self.data = N.rot90(self.data) #rotation in the clock-wise direction - right rotation
-		
+		# if self.horizontal_detector == True:
+			# self.data = N.rot90(self.data) #rotation in the clock-wise direction - right rotation
+		self.data = N.rot90(self.data,self.rotate_detector_n)
 		self.MAIN_EXTENT = (0, self.data.shape[1], 0, self.data.shape[0])
 		
 		if self.tth_chi_space_btn.get_active():
@@ -2655,6 +2694,8 @@ class MyMainWindow(gtk.Window):
 			self.Reciprocal_space_plot(space="HL")
 		elif self.kl_space_btn.get_active():
 			self.Reciprocal_space_plot(space="KL")
+		elif self.q_space_btn.get_active():
+			self.Reciprocal_space_plot(space="Q")
 		else:
 			self.show_chi_delta_btn.set_sensitive(True)
 			self.show_chi_delta_flag = self.show_chi_delta_btn.get_active()		
@@ -2690,7 +2731,7 @@ class MyMainWindow(gtk.Window):
 			if self.tth_chi_space_btn.get_active():
 				x = get_index(self.tth_pyFAI,x)
 				y = get_index(self.chi_pyFAI,y)
-			elif self.hk_space_btn.get_active() or self.kl_space_btn.get_active() or self.hl_space_btn.get_active():
+			elif self.hk_space_btn.get_active() or self.kl_space_btn.get_active() or self.hl_space_btn.get_active() or self.q_space_btn.get_active():
 				x = get_index(self.QGridder.xaxis,x)
 				y = get_index(self.QGridder.yaxis,y)
 			x= int(x)
@@ -2740,6 +2781,15 @@ class MyMainWindow(gtk.Window):
 				coor_Y = self.QGridder.yaxis
 				self.chi_title.set_text("L")
 				self.tth_title.set_text("K")
+			elif self.q_space_btn.get_active():
+				X_label = r"$Qy\ (nm^{-1})$"
+				Y_label = r"$Qz\ (nm^{-1})$"
+				yc = self.QGridder.yaxis[y]
+				xc = self.QGridder.xaxis[x]
+				coor_X = self.QGridder.xaxis
+				coor_Y = self.QGridder.yaxis
+				self.chi_title.set_text("Qz")
+				self.tth_title.set_text("Qy")
 			else:
 				X_label = "X (pixels)"
 				Y_label = "Y (pixels)"
@@ -2757,7 +2807,7 @@ class MyMainWindow(gtk.Window):
 				x[1] = get_index(self.tth_pyFAI,x[1])
 				y[1] = get_index(self.chi_pyFAI,y[1])
 			
-			elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active():
+			elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active() or self.q_space_btn.get_active():
 				x[0] = get_index(self.QGridder.xaxis,x[0])
 				y[0] = get_index(self.QGridder.yaxis,y[0])
 				x[1] = get_index(self.QGridder.xaxis,x[1])
@@ -2796,6 +2846,12 @@ class MyMainWindow(gtk.Window):
 					Y_label = "L (r.l.u)"
 					self.chi_title.set_text("L")
 					self.tth_title.set_text("K")
+				elif self.q_space_btn.get_active():
+					X_label = r"$Qy\ (nm^{-1})$"
+					Y_label = r"$Qz\ (nm^{-1})$"
+					self.chi_title.set_text("Qz")
+					self.tth_title.set_text("Qy")
+					
 			
 			
 			else:
@@ -3015,53 +3071,6 @@ class MyMainWindow(gtk.Window):
 		self.arb_lines_X=[]
 		self.arb_lines_Y=[]
 		self.arb_line_points = 0
-
-	def peak_max_old(self, event):
-		x = int(event.xdata)
-		y = int(event.ydata)
-		img = self.data.copy()
-		#### range problem
-		if y-25<0:
-			down = 0
-			j0 = y
-		else:
-			down = y-25
-			j0 = 25
-		if y+25>self.yDim1:
-			up = self.yDim1-1
-		else:
-			up = y+25
-      
-		if x-25<0:
-			left = 0
-			i0 = x
-		else:
-			left = x-25
-			i0 = 25
-		if x+25>self.xDim1:
-			right = self.xDim1-1
-		else:
-			right = x+25
-
-		#img = N.asarray(img[y-25:y+25,x-25:x+25])
-		img = N.asarray(img[down:up,left:right])
-		img = ndimage.median_filter(img,5)
-		j,i = N.unravel_index(img.argmax(), img.shape)
-		x = x + i - i0
-		y = y + j - j0
-		chi = self.tableChi[y,x] - 90 + self.chi
-		tth = self.tableTwoTheta[y,x]
-		d   = self.table_dSpace[y,x]
-		chi_text = r'$ \chi \ = \ %.2f$'%chi
-		tth_text = r'$ 2\theta \ = \ %.2f$'%tth
-		d_text = r'$ d \ = \ %.4f \ \AA$'%d
-		txt1 = self.ax.text(x,y+50,tth_text, fontsize=14, color="white")
-		txt2 = self.ax.text(x,y,chi_text, fontsize=14, color="white")
-		txt3 = self.ax.text(x,y-50,d_text, fontsize=14, color="white")
-		self.my_notes.append(txt1)
-		self.my_notes.append(txt2)
-		self.my_notes.append(txt3)
-		self.canvas.draw()
 
 	def peak_max(self, event):
 		x = int(event.xdata)
