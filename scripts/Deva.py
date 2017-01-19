@@ -2828,7 +2828,7 @@ class MyMainWindow(gtk.Window):
 				self.chi_title.set_text("Chi")
 				self.tth_title.set_text("2 Theta")
 			
-			elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active():
+			elif self.hk_space_btn.get_active() or self.hl_space_btn.get_active() or self.kl_space_btn.get_active() or self.q_space_btn.get_active():
 				coor_X = N.linspace(self.QGridder.xaxis[int(x[0])], self.QGridder.xaxis[int(x[1])], num)
 				coor_Y = N.linspace(self.QGridder.yaxis[int(y[0])], self.QGridder.yaxis[int(y[1])], num)
 				if self.hk_space_btn.get_active():
