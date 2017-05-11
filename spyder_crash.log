@@ -1,0 +1,22 @@
+Traceback (most recent call last):
+  File "C:\Python27\lib\site-packages\spyderlib\spyder.py", line 2354, in main
+    mainwindow = run_spyder(app, options, args)
+  File "C:\Python27\lib\site-packages\spyderlib\spyder.py", line 2242, in run_spyder
+    main.setup()
+  File "C:\Python27\lib\site-packages\spyderlib\spyder.py", line 973, in setup
+    from xy.config import DOC_PATH as xy_doc_path
+  File "C:\Python27\lib\site-packages\xy\config.py", line 40, in <module>
+    CONF = UserConfig('xy', defaults=DEFAULTS, version=__version__, subfolder='.xy')
+  File "C:\Python27\lib\site-packages\xy\userconfig.py", line 110, in __init__
+    if version != self.get_version(version):
+  File "C:\Python27\lib\site-packages\xy\userconfig.py", line 130, in get_version
+    return self.get(self.DEFAULT_SECTION_NAME, 'version', version)
+  File "C:\Python27\lib\site-packages\xy\userconfig.py", line 269, in get
+    value = cp.ConfigParser.get(self, section, option, raw=self.raw)
+  File "C:\Python27\lib\site-packages\backports\configparser\__init__.py", line 811, in get
+    d)
+  File "C:\Python27\lib\site-packages\backports\configparser\__init__.py", line 384, in before_get
+    self._interpolate_some(parser, option, L, value, section, defaults, 1)
+  File "C:\Python27\lib\site-packages\backports\configparser\__init__.py", line 397, in _interpolate_some
+    rawval = parser.get(section, option, raw=True, fallback=rest)
+TypeError: get() got an unexpected keyword argument 'raw'

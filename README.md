@@ -68,3 +68,10 @@ RUNNING:
 ==========================
 + To run DEVA, just open a terminal wherever you want (or command prompt on Windows) and type: Deva.py or just Deva
 	
+RULES FOR USING DEVA: 
+==========================
+    +Name your data files as: prefix_number.edf (recognized format: edf, cbf, tiff, ... The full list can be found in Fabio documentation.)
+    +Don't reset the image number in one experiment
+    +If you are forced to reset the image file name (including prefix and/or number): make new folder AND new specfile
+    +You can make as much subfolders as you want. At the moment DEVA support 1 level of subfolder, meaning: top_level folder + 1 level subfolder.
+    

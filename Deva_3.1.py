@@ -2,17 +2,17 @@
 # -*- coding: utf-8 -*-
 ################ DEVA software: D2AM Edf images Visualisation and Analysis ##############
 ###### Dependencies: numpy, scipy, matplotlib, lmfit (sudo easy_install -U lmfit), pyFAI, fabio, Basemap
-#from gi.repository import GObject
-import xrayutilities
-#from mayavi import mlab
-import gtk,gobject,threading, time
+import gi
+gi.require_version('Gtk', '3.0')
+from gi.repository import GObject
+from gi.repository import Gtk
+import threading, time
 # import multiprocessing as mp
 import sys
 from sys import stdout
 import os
 import re, operator
 import gc
-import glob
 from os import listdir
 from os.path import isfile,join
 import tempfile
@@ -29,29 +29,28 @@ from DEVA.CommonFunctions import *
 from DEVA.GettingData_MultiThreading import *
 from DEVA.Geometry_Correction import *
 from DEVA.PlotPolarGrid import *
-from multiprocessing import Pool
 
 ##############
 ## Graphic library ##
 ##############
 import matplotlib as mpl
-#mpl.use('GtkAgg')
+mpl.use('Gtk3Agg')
 from matplotlib.figure import Figure
 #from matplotlib.axes import Subplot
-from matplotlib.backends.backend_gtkagg import FigureCanvasGTKAgg as FigureCanvas
-from matplotlib.backends.backend_gtkagg import NavigationToolbar2GTKAgg as NavigationToolbar
+from matplotlib.backends.backend_gtk3agg import FigureCanvasGTK3Agg as FigureCanvas
+from matplotlib.backends.backend_gtk3 import NavigationToolbar2GTK3 as NavigationToolbar
 from matplotlib.cm import jet # colormap
 from matplotlib.widgets import Cursor
 from matplotlib.patches import Rectangle
 from matplotlib.ticker import MaxNLocator
-
 import fabio
 import pyFAI
+import xrayutilities
 
 __author__="Tra NGUYEN THANH"
 __email__ = "thanhtra0104@gmail.com"
-__version__ = "3.2"
-__date__="10/05/2017"
+__version__ = "3.1"
+__date__="01/02/2017"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -62,102 +61,75 @@ mpl.rcParams['figure.subplot.bottom'] = 0.13
 mpl.rcParams['figure.subplot.top'] = 0.93
 mpl.rcParams['figure.subplot.left'] = 0.14
 mpl.rcParams['figure.subplot.right'] = 0.915
-mpl.rcParams['image.cmap'] = 'jet'
+#mpl.rcParams['image.cmap'] = jet
 mpl.rcParams['savefig.dpi'] = 300
 
-
-#print os.getcwd()
-_SPEC_IMG_COL         = ["img", "Image_num"] #column containing image number in spec file
-_IMG_NUMBER_SEPARATOR = "_"  #Please prefer to use the underscore to separate image number from prefix
-_IMG_FORMAT           = ".edf"
-# ********************************************************************************************************************************************
-_DETECTOR_NAME    = "Maxipix"
-_DETECTOR_PIXELS  = [516, 516] #Number of pixels in the first and second direction. First means vertical, second means horizontal direction
-_PIXEL_SIZE        = 55e-6 #m
-# ********************************************************************************************************************************************
-_DETECTOR_ROTATIONS           = 1 #Number of rotations
-_DETECTOR_MOTORS              = ["tth"] #Detector motors, from outermost to innermost if having more than 1 motor
-_DETECTOR_ROTATION_DIRECTIONS = ['z+'] #positive rotation direction of the detector's arm, outermost --> inner most
-_DETECTOR_PIXEL_DIRECTIONS    = ['z+', 'y+'] #Positive directions of the pixels, first (vertical) and second (horizontal) direction
-# ********************************************************************************************************************************************
-_SAMPLE_ROTATIONS             = 3 #Number of sample rotations
-_SAMPLE_ROTATION_DIRECTIONS   = ['z+', 'x-', 'z+'] #Positive rotation directions of the sample motors, from outermost circle to innermost circle
-_SAMPLE_ROTATION_MOTORS       = ["th", "chi", "phi"] #Sample rotation motors, from outermost to innermost circle
-_XRAY_INCIDENT_BEAM_DIRECTION = 'x+' #Direction of incident X-ray beam. In general we choose this direction as x+
-
-from os.path import expanduser
-DEVA_dir = join(expanduser("~"),"DEVA")
-s=open(join(DEVA_dir,"Instrument_configuration.DEVA"), "r").read()
-exec(s)
-
+#Global variables
+_PIXEL_SIZE   = 130e-6 #m
+_SPEC_IMG_COL = ["img", "xpadNum"] #column containing image number in spec file
+# MAIN_LOCK = threading.Lock()
 	
-class MyMainWindow(gtk.Window):
+class MyMainWindow(Gtk.Window):
 
 	def __init__(self):
 		super(MyMainWindow, self).__init__()
 		self.set_title("DEVA - D2AM EDF Visualisation and Analysis - version %s - Last update: %s"%(__version__, __date__))
 		# self.set_size_request(1230, 950)
 		self.set_size_request(1000, 850)
-		#self.modify_bg(gtk.STATE_NORMAL, gtk.gdk.Color(6400, 6400, 6440))
-		self.set_position(gtk.WIN_POS_CENTER)
+		#self.modify_bg(Gtk.StateType.NORMAL, Gdk.Color(6400, 6400, 6440))
+		self.set_position(Gtk.WindowPosition.CENTER)
 		self.set_border_width(5)
 		#self.set_icon_from_file('DEVA/D2AM.jpg')
 		##################### TOOL BAR ####################################################
-		self.detector_type = _DETECTOR_NAME # My detector by default is XPAD D5
-		self.menubar = gtk.MenuBar()
+		self.detector_type = "D5" # My detector by default is XPAD D5
+		self.menubar = Gtk.MenuBar()
 
-		self.detector_menu = gtk.Menu()
-		self.detm = gtk.MenuItem(_DETECTOR_NAME)
+		self.detector_menu = Gtk.Menu()
+		self.detm = Gtk.MenuItem("Detector")
 		self.detm.set_submenu(self.detector_menu)
 
-		self.detector_D5 = gtk.MenuItem("XPAD D5")
+		self.detector_D5 = Gtk.MenuItem("XPAD D5")
 		self.detector_D5.connect("activate", self.set_detector, "D5") #a definir fonction set_detector
 		self.detector_menu.append(self.detector_D5)
 
-		self.detector_D1 = gtk.MenuItem("XPAD D1")
+		self.detector_D1 = Gtk.MenuItem("XPAD D1")
 		self.detector_D1.connect("activate", self.set_detector, "D1") #a definir fonction set_detector
 		self.detector_menu.append(self.detector_D1)
 		
-		self.detector_S70 = gtk.MenuItem("XPAD S70")
+		self.detector_S70 = Gtk.MenuItem("XPAD S70")
 		self.detector_S70.connect("activate", self.set_detector, "S70")
 		self.detector_menu.append(self.detector_S70)
 		#Menu manip
 		self.experiment_type = "GONIO"
-		self.manip_menu = gtk.Menu()
-		self.manipm = gtk.MenuItem("Experiment")
+		self.manip_menu = Gtk.Menu()
+		self.manipm = Gtk.MenuItem("Experiment")
 		self.manipm.set_submenu(self.manip_menu)
 
-		self.manip_gonio = gtk.MenuItem("Gonio")
+		self.manip_gonio = Gtk.MenuItem("Gonio")
 		self.manip_gonio.connect("activate", self.set_manip, "gonio")
 		self.manip_menu.append(self.manip_gonio)
 
-		self.manip_gisaxs = gtk.MenuItem("GISAXS")
+		self.manip_gisaxs = Gtk.MenuItem("GISAXS")
 		self.manip_gisaxs.connect("activate", self.set_manip, "gisaxs")
 		self.manip_menu.append(self.manip_gisaxs)
 
-		self.instrument_menu = gtk.Menu()
-		self.instrument_item = gtk.MenuItem("Intrument Config")
-		self.instrument_item.set_submenu(self.instrument_menu)
-		self.instrument_item.connect("activate", self.instrument_config)
-
-		self.menubar.append(self.instrument_item)
 		self.menubar.append(self.detm)
 		self.menubar.append(self.manipm)
 
-		self.toolbar = gtk.Toolbar()
-		self.toolbar.set_style(gtk.TOOLBAR_ICONS)
+		self.toolbar = Gtk.Toolbar()
+		self.toolbar.set_style(Gtk.ToolbarStyle.ICONS)
 
-		self.refreshtb = gtk.ToolButton(gtk.STOCK_REFRESH)
-		self.opentb = gtk.ToolButton(gtk.STOCK_OPEN)
-		self.savetb = gtk.ToolButton(gtk.STOCK_SAVE)
-		self.sep = gtk.SeparatorToolItem()
-		self.quittb = gtk.ToolButton(gtk.STOCK_QUIT)
-		self.sep2 = gtk.SeparatorToolItem()
-		self.zoomtb = gtk.ToggleToolButton(gtk.STOCK_ZOOM_IN)
-		self.hometb = gtk.ToolButton(gtk.STOCK_HOME)
-		self.aspecttb = gtk.ToolButton(gtk.STOCK_PAGE_SETUP)
-		self.loadcalibtb = gtk.ToggleToolButton(gtk.STOCK_CONVERT)
-		self.use_dark_tb = gtk.ToggleToolButton(gtk.STOCK_DIALOG_INFO)
+		self.refreshtb = Gtk.ToolButton(Gtk.STOCK_REFRESH)
+		self.opentb = Gtk.ToolButton(Gtk.STOCK_OPEN)
+		self.savetb = Gtk.ToolButton(Gtk.STOCK_SAVE)
+		self.sep = Gtk.SeparatorToolItem()
+		self.quittb = Gtk.ToolButton(Gtk.STOCK_QUIT)
+		self.sep2 = Gtk.SeparatorToolItem()
+		self.zoomtb = Gtk.ToggleToolButton(Gtk.STOCK_ZOOM_IN)
+		self.hometb = Gtk.ToolButton(Gtk.STOCK_HOME)
+		self.aspecttb = Gtk.ToolButton(Gtk.STOCK_PAGE_SETUP)
+		self.loadcalibtb = Gtk.ToggleToolButton(Gtk.STOCK_CONVERT)
+		self.use_dark_tb = Gtk.ToggleToolButton(Gtk.STOCK_DIALOG_INFO)
 
 		self.toolbar.insert(self.opentb, 0)
 		self.toolbar.insert(self.refreshtb, 1)
@@ -173,16 +145,16 @@ class MyMainWindow(gtk.Window):
 		self.toolbar.insert(self.sep2, 9)
 		self.toolbar.insert(self.quittb, 10)
 
-		self.tooltips = gtk.Tooltips()
-		self.tooltips.set_tip(self.refreshtb,"Reload data files")
-		self.tooltips.set_tip(self.opentb,"Open a folder containing EDF images")
-		self.tooltips.set_tip(self.savetb,"Save image")
-		self.tooltips.set_tip(self.quittb,"Quit the program")
-		self.tooltips.set_tip(self.zoomtb,"Zoom in")
-		self.tooltips.set_tip(self.hometb,"Reset image")
-		self.tooltips.set_tip(self.aspecttb,"Change the graph's aspect ratio")
-		self.tooltips.set_tip(self.loadcalibtb,"Load a calibration file (PONI file)")
-		self.tooltips.set_tip(self.use_dark_tb,"Use this image as dark data. Click again to cancel dark substraction.")
+		self.tooltips = Gtk.Tooltip()
+		self.refreshtb.set_tooltip_text("Reload data files")
+		self.opentb.set_tooltip_text("Open a folder containing EDF images")
+		self.savetb.set_tooltip_text("Save image")
+		self.quittb.set_tooltip_text("Quit the program")
+		self.zoomtb.set_tooltip_text("Zoom in")
+		self.hometb.set_tooltip_text("Reset image")
+		self.aspecttb.set_tooltip_text("Change the graph's aspect ratio")
+		self.loadcalibtb.set_tooltip_text("Load a calibration file (PONI file)")
+		self.use_dark_tb.set_tooltip_text("Use this image as dark data. Click again to cancel dark substraction.")
 
 		#self.newtb.set_sensitive(False)
 		#self.aspecttb.set_sensitive(False)
@@ -190,7 +162,7 @@ class MyMainWindow(gtk.Window):
 		self.opentb.connect("clicked", self.choose_folder)
 		self.refreshtb.connect("clicked",self.folder_update)
 		self.savetb.connect("clicked", self.save_image)
-		self.quittb.connect("clicked", gtk.main_quit)
+		self.quittb.connect("clicked", Gtk.main_quit)
 		self.zoomtb.connect("toggled", self.zoom_on)
 		self.hometb.connect("clicked", self.reset_image)
 		self.aspecttb.connect("clicked", self.change_aspect_ratio)
@@ -200,25 +172,25 @@ class MyMainWindow(gtk.Window):
 		self.DARK_CORRECTION = False
 
 		############################# BOXES ###############################################
-		vbox = gtk.VBox()
+		vbox = Gtk.VBox()
 		vbox.pack_start(self.menubar,False,False,0)
 		vbox.pack_start(self.toolbar,False,False,0)
-		hbox=gtk.HBox()
+		hbox=Gtk.HBox()
 		######################### TREE VIEW #############################################
-		self.sw = gtk.ScrolledWindow()
-		self.sw.set_shadow_type(gtk.SHADOW_ETCHED_IN)
-		self.sw.set_policy(gtk.POLICY_NEVER, gtk.POLICY_AUTOMATIC)
+		self.sw = Gtk.ScrolledWindow()
+		self.sw.set_shadow_type(Gtk.ShadowType.ETCHED_IN)
+		self.sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
 		hbox.pack_start(self.sw, False, False, 0)
 		self.store={}
-		self.MODEL = gtk.TreeStore(str)
-		#self.list_store = gtk.ListStore(str)
-		#self.treeView = gtk.TreeView(self.list_store)
-		self.treeView = gtk.TreeView(self.MODEL)
+		self.MODEL = Gtk.TreeStore(str)
+		#self.list_store = Gtk.ListStore(str)
+		#self.treeView = Gtk.TreeView(self.list_store)
+		self.treeView = Gtk.TreeView(self.MODEL)
 		self.treeView.connect("row-activated",self.on_changed_edf)
 
-		rendererText = gtk.CellRendererText()
-		self.TVcolumn = gtk.TreeViewColumn("EDF images", rendererText, text=0)
+		rendererText = Gtk.CellRendererText()
+		self.TVcolumn = Gtk.TreeViewColumn("EDF images", rendererText, text=0)
 		self.TVcolumn.set_sort_column_id(0)    
 		self.treeView.append_column(self.TVcolumn)
 
@@ -230,19 +202,16 @@ class MyMainWindow(gtk.Window):
 		#if self.current_folder is not os.getcwd():
 		#	glib.timeout_add_seconds(5, self.folder_update)
 		############################# NOTEBOOK ################################################
-		self.notebook = gtk.Notebook()
-		self.page_single_figure = gtk.HBox()
-		self.midle_panel = gtk.VBox()
-		self.page_pole_figure   = gtk.HBox()
-		self.page_batch_correction = gtk.HBox() #For batch correction of EDF
+		self.notebook = Gtk.Notebook()
+		self.page_single_figure = Gtk.HBox()
+		self.midle_panel = Gtk.VBox()
+		self.page_pole_figure   = Gtk.HBox()
+		self.page_batch_correction = Gtk.HBox() #For batch correction of EDF
 		
 		#**************************** Geometry setup ******************************************
-		xdirection = {'x+':[1,0,0], 'x-': [-1,0,0], 'y+': [0,1,0], 'y-': [0,-1,0], 'z+':[0,0,1], 'z-': [0,0,-1]}
-		self.qconv = xrayutilities.experiment.QConversion(_SAMPLE_ROTATION_DIRECTIONS,_DETECTOR_ROTATION_DIRECTIONS,xdirection[_XRAY_INCIDENT_BEAM_DIRECTION])
-		#print "qconv"
-		#print _SAMPLE_ROTATION_DIRECTIONS,_DETECTOR_ROTATION_DIRECTIONS,xdirection[_XRAY_INCIDENT_BEAM_DIRECTION]
-		self.geometry_setup_tbl = gtk.Table(3,4,True)
-		self.geometry_manual    = gtk.Button("VALIDATE the above parameters setup")
+		self.qconv = xrayutilities.experiment.QConversion(['y-','x-','z+'],['z+','y-'],[1,0,0])
+		self.geometry_setup_tbl = Gtk.Table(3,4,True)
+		self.geometry_manual    = Gtk.Button("VALIDATE the above parameters setup")
 		self.geometry_manual.connect("clicked", self.manual_calibration)
 		#************** Check if the Geo_config.DEVA file exist **************
 		geo_distance = ""
@@ -253,7 +222,7 @@ class MyMainWindow(gtk.Window):
 		geo_substrate_other = ""
 		geo_inplane  = "1 1 0"
 		geo_outplane = "0 0 1"
-		tmp_dir = DEVA_dir
+		tmp_dir = tempfile.gettempdir()
 		geo_file_name = join(tmp_dir,"Geo_config.DEVA")
 		if isfile(geo_file_name):
 			geoconfig_file = open(geo_file_name,'r+')
@@ -279,45 +248,45 @@ class MyMainWindow(gtk.Window):
 				
 			geoconfig_file.close()
 			
-		self.geometry_distance_txt = gtk.Label("Distance Samp-Det (m):")
-		self.geometry_distance     = gtk.Entry()
-		self.geometry_distance.set_usize(30,0)
+		self.geometry_distance_txt = Gtk.Label(label="Distance Samp-Det (m):")
+		self.geometry_distance     = Gtk.Entry()
+		# self.geometry_distance.set_usize(30,0)
 		self.geometry_distance.set_text(geo_distance)
-		self.geometry_direct_beam_txt = gtk.Label("Direct beam X,Y:")
-		self.geometry_direct_beam     = gtk.Entry()
-		self.geometry_direct_beam.set_usize(30,0)
+		self.geometry_direct_beam_txt = Gtk.Label("Direct beam X,Y:")
+		self.geometry_direct_beam     = Gtk.Entry()
+		# self.geometry_direct_beam.set_usize(30,0)
 		self.geometry_direct_beam.set_text(geo_direct)
-		self.geometry_energy_txt      = gtk.Label("Energy (eV):")
-		self.geometry_energy          = gtk.Entry()
-		self.geometry_energy.set_usize(30,0)
+		self.geometry_energy_txt      = Gtk.Label(label="Energy (eV):")
+		self.geometry_energy          = Gtk.Entry()
+		# self.geometry_energy.set_usize(30,0)
 		self.geometry_energy.set_text(geo_energy)
 		self.geometry_distance_txt.set_alignment(0,0.5)
 		self.geometry_direct_beam_txt.set_alignment(0,0.5)
 		self.geometry_energy_txt.set_alignment(0,0.5)
 		
-		self.geometry_UB_txt  = gtk.Label("Import a UB matrix file:")
-		self.geometry_browse_UB = gtk.ToggleButton("Browse UB file")
-		self.geometry_browse_UB.set_usize(30,0)
+		self.geometry_UB_txt  = Gtk.Label(label="Import a UB matrix file:")
+		self.geometry_browse_UB = Gtk.ToggleButton("Browse UB file")
+		# self.geometry_browse_UB.set_usize(30,0)
 		self.geometry_browse_UB.connect("toggled",self.load_UBfile)
 		self.UB_MATRIX_LOAD = False #By default, no UB matrix file is loaded
 		
-		self.geometry_substrate_txt  = gtk.Label("Substrate material:")
-		self.geometry_substrate_other_txt  = gtk.Label("If other:")
-		self.geometry_substrate_inplane_txt= gtk.Label("In-plane direction:")
-		self.geometry_substrate_outplane_txt= gtk.Label("Normal direction:")
+		self.geometry_substrate_txt  = Gtk.Label(label="Substrate material:")
+		self.geometry_substrate_other_txt  = Gtk.Label(label="If other:")
+		self.geometry_substrate_inplane_txt= Gtk.Label(label="In-plane direction:")
+		self.geometry_substrate_outplane_txt= Gtk.Label(label="Normal direction:")
 		
-		self.tooltips.set_tip(self.geometry_direct_beam_txt, "Position (in pixel) of the direct beam when all motors are at zero. X and Y position are separated by a comma, e.g. 300.5,650.7")
-		self.tooltips.set_tip(self.geometry_substrate_txt, "Substrate material")
-		self.tooltips.set_tip(self.geometry_substrate_other_txt, "The substrate material, i.e. Al, SiO2, CdTe, GaN,...")
-		self.tooltips.set_tip(self.geometry_substrate_inplane_txt, "The substrate in-plane direction - separated by space - for calculation of the orientation matrix.")
-		self.tooltips.set_tip(self.geometry_substrate_outplane_txt, "The substrate out-of-plane direction - separated by space - for calculation of the orientation matrix.")
+		self.geometry_direct_beam_txt.set_tooltip_text("Position (in pixel) of the direct beam when all motors are at zero. X and Y position are separated by a comma, e.g. 300.5,650.7")
+		self.geometry_substrate_txt.set_tooltip_text("Substrate material")
+		self.geometry_substrate_other_txt.set_tooltip_text("The substrate material, i.e. Al, SiO2, CdTe, GaN,...")
+		self.geometry_substrate_inplane_txt.set_tooltip_text("The substrate in-plane direction - separated by space - for calculation of the orientation matrix.")
+		self.geometry_substrate_outplane_txt.set_tooltip_text("The substrate out-of-plane direction - separated by space - for calculation of the orientation matrix.")
 		
 		self.geometry_substrate_txt.set_alignment(0,0.5)
 		self.geometry_substrate_other_txt.set_alignment(0,0.5)
 		self.geometry_substrate_inplane_txt.set_alignment(0,0.5)
 		self.geometry_substrate_outplane_txt.set_alignment(0,0.5)
-		self.geometry_substrate = gtk.combo_box_new_text()
-		self.geometry_substrate.set_usize(30,0)
+		self.geometry_substrate = Gtk.ComboBoxText()
+		# self.geometry_substrate.set_usize(30,0)
 		substrate_list = ["-- other", "Si", "Ge", "GaAs", "GaN", "GaP", "GaSb", "InAs", "InP", "InSb", "Al2O3"]
 		for s in range(len(substrate_list)):
 			self.geometry_substrate.append_text(substrate_list[s])
@@ -334,17 +303,17 @@ class MyMainWindow(gtk.Window):
 			else:
 				geo_substrate_other = geo_substrate
 		
-		self.geometry_substrate_other = gtk.Entry()
-		self.geometry_substrate_other.set_usize(30,0)
+		self.geometry_substrate_other = Gtk.Entry()
+		# self.geometry_substrate_other.set_usize(30,0)
 		self.geometry_substrate_other.set_text(geo_substrate_other)
-		self.geometry_substrate_inplane = gtk.Entry()
-		self.geometry_substrate_inplane.set_usize(30,0)
+		self.geometry_substrate_inplane = Gtk.Entry()
+		# self.geometry_substrate_inplane.set_usize(30,0)
 		self.geometry_substrate_inplane.set_text(geo_inplane)
-		self.geometry_substrate_outplane = gtk.Entry()
-		self.geometry_substrate_outplane.set_usize(30,0)
+		self.geometry_substrate_outplane = Gtk.Entry()
+		# self.geometry_substrate_outplane.set_usize(30,0)
 		self.geometry_substrate_outplane.set_text(geo_outplane)
 		
-		self.tooltips.set_tip(self.geometry_UB_txt, "Import a UB matrix which is a text file with a 3x3 matrix (3 lines, 3 colunms)")
+		self.geometry_UB_txt.set_tooltip_text("Import a UB matrix which is a text file with a 3x3 matrix (3 lines, 3 colunms)")
 		
 		self.geometry_UB_txt.set_alignment(0,0.5)
 				
@@ -389,9 +358,9 @@ class MyMainWindow(gtk.Window):
 		self.MAIN_YLABEL = self.ax.set_ylabel("Y (pixel)")
 		#self.fig.text(0.5, 0.92, self.edf, ha='center', fontsize=26)
 		self.xDim0 = 0
-		self.xDim1 = _DETECTOR_PIXELS[1]
+		self.xDim1 = 560
 		self.yDim0 = 0
-		self.yDim1 = _DETECTOR_PIXELS[0]
+		self.yDim1 = 960
 		self.MAIN_EXTENT = (self.xDim0,self.xDim1,self.yDim0,self.yDim1)
 		self.fig.subplots_adjust(left=0.1,bottom=0.20, top=0.90)
 		self.data = N.zeros(shape=(self.yDim1,self.xDim1))
@@ -456,26 +425,28 @@ class MyMainWindow(gtk.Window):
 		self.SPEC_ALL_MOTORS_LIST  = []#List of all motor_scan, in uppercase (PHI,TSZ,ETA,...)
 		self.SPEC_SKIPPED_MOTORS   = []#List of the scanning motors that we don't want to search
 		
-		self.scan_slider_frame = gtk.Frame()
-		self.scan_slider_table_align = gtk.Alignment(0,0.5,1,1)
+		self.scan_slider_frame = Gtk.Frame()
+		self.scan_slider_table_align = Gtk.Alignment.new(0,0.5,1,1)
 		self.scan_slider_table_align.set_padding(10,5,5,5)
-		skip_box = gtk.HBox()
+		skip_box = Gtk.HBox()
 		
 		self.scan_slider_frame.set_label("Scan Slider")
 		self.scan_slider_frame.set_label_align(0.5,0.5)
-		self.scan_slider_table = gtk.Table(3,3,False)
-		self.scan_slider_specfile_txt = gtk.Label("Spec file")
+		self.scan_slider_table = Gtk.Table(3,3,False)
+		self.scan_slider_specfile_txt = Gtk.Label(label="Spec file")
 		self.scan_slider_specfile_txt.set_alignment(0,0.5)
-		self.scan_slider_scanNumber_txt = gtk.Label("Scan #")
+		self.scan_slider_scanNumber_txt = Gtk.Label(label="Scan #")
 		self.scan_slider_scanNumber_txt.set_alignment(0,0.5)
-		self.scan_slider_path = gtk.Entry()
-		self.scan_slider_browseSpec = gtk.Button("Browse spec file")
+		self.scan_slider_path = Gtk.Entry()
+		self.scan_slider_browseSpec = Gtk.Button("Browse spec file")
 		#self.scan_slider_browseSpec.set_size_request(80,-1)
 		self.scan_slider_browseSpec.connect("clicked",self.load_specFile)
-		scan_slider_spin_adj = gtk.Adjustment(1,0,1,1,10,0)#actual, min, max, step increment, page increment, page size
+		scan_slider_spin_adj = Gtk.Adjustment(1,0,1,1,10,0)#actual, min, max, step increment, page increment, page size
 		
-		self.scan_slider_spinButton = gtk.SpinButton(scan_slider_spin_adj, 1,0)
-		self.scan_slider_imgSlider  = gtk.HScale()
+		# self.scan_slider_spinButton = Gtk.SpinButton(scan_slider_spin_adj, 1,0)
+		self.scan_slider_spinButton = Gtk.SpinButton()
+		self.scan_slider_spinButton.set_adjustment(scan_slider_spin_adj)
+		self.scan_slider_imgSlider  = Gtk.HScale()
 		self.scan_slider_imgSlider.set_range(0,1)
 		self.scan_slider_imgSlider.set_value(1)
 		self.scan_slider_imgSlider.set_digits(0)
@@ -485,31 +456,27 @@ class MyMainWindow(gtk.Window):
 		self.scan_slider_imgSlider.connect("value-changed", self.slider_plot_scan)
 		
 		#Skip scans:
-		self.scan_slider_skip_scans = gtk.Label("Skipped scans:")
+		self.scan_slider_skip_scans = Gtk.Label(label="Skipped scans:")
 		self.scan_slider_skip_scans.set_alignment(0,0.5)
-		self.scan_slider_skip_tsz   = gtk.CheckButton("Tsz")
-		self.scan_slider_skip_eta   = gtk.CheckButton("Eta")
-		self.scan_slider_skip_del   = gtk.CheckButton("Del")
-		self.scan_slider_skip_chi   = gtk.CheckButton("Chi")
-		self.scan_slider_skip_phi   = gtk.CheckButton("Phi")
-		self.scan_slider_skip_rox   = gtk.CheckButton("Rox")
-		self.scan_slider_skip_roy   = gtk.CheckButton("Roy")
-		self.scan_slider_skip_tox   = gtk.CheckButton("Tox")
-		self.scan_slider_skip_toy   = gtk.CheckButton("Toy")
-		self.scan_slider_skip_rien  = gtk.CheckButton("Rien")
+		self.scan_slider_skip_tsz   = Gtk.CheckButton("Tsz")
+		self.scan_slider_skip_eta   = Gtk.CheckButton("Eta")
+		self.scan_slider_skip_del   = Gtk.CheckButton("Del")
+		self.scan_slider_skip_chi   = Gtk.CheckButton("Chi")
+		self.scan_slider_skip_phi   = Gtk.CheckButton("Phi")
+		self.scan_slider_skip_rox   = Gtk.CheckButton("Rox")
+		self.scan_slider_skip_roy   = Gtk.CheckButton("Roy")
+		self.scan_slider_skip_tox   = Gtk.CheckButton("Tox")
+		self.scan_slider_skip_toy   = Gtk.CheckButton("Toy")
+		self.scan_slider_skip_rien  = Gtk.CheckButton("Rien")
 		#skip_box.pack_start(self.scan_slider_skip_scans, False, False, 0)
 		#Plot roi
-		plot_roi_txt = gtk.Label("Plot ROI:")
-		self.tooltips.set_tip(plot_roi_txt, "Check this box to draw a ROI. Click on the image and drag the mouse to draw. Click again to ecrase the ROI")
+		plot_roi_txt = Gtk.Label(label="Plot ROI:")
+		plot_roi_txt.set_tooltip_text("Check this box to draw a ROI. Click on the image and drag the mouse to draw. Click again to ecrase the ROI")
 		plot_roi_txt.set_alignment(0,0.5)
-		self.draw_roi_btn = gtk.CheckButton("Draw a ROI")
+		self.draw_roi_btn = Gtk.CheckButton("Draw a ROI (Very helpful for 3D plot)")
 		self.draw_roi_btn.connect("toggled",self.Enable_draw_roi)
-		self.plot_3D_scan_btn = gtk.Button("Plot 3D HKL of this scan")
+		self.plot_3D_scan_btn = Gtk.Button("Plot 3D HKL of this scan")
 		self.plot_3D_scan_btn.connect("clicked",self.plot_3D_scan)
-		roi_box = gtk.HBox()
-		roi_box.pack_start(self.draw_roi_btn, False, False, 0)
-		self.use_spec_UB = gtk.CheckButton("Use UB from Spec (if applicable)")
-		roi_box.pack_start(self.use_spec_UB, False, False, 0)
 		
 		skip_box.pack_start(self.scan_slider_skip_tsz, False, False, 0)
 		skip_box.pack_start(self.scan_slider_skip_eta, False, False, 0)
@@ -531,7 +498,7 @@ class MyMainWindow(gtk.Window):
 		#self.scan_slider_table.attach(self.scan_slider_skip_scans,0,1,2,3)
 		#self.scan_slider_table.attach(skip_box, 1,3,2,3)
 		self.scan_slider_table.attach(plot_roi_txt, 0,1,2,3)
-		self.scan_slider_table.attach(roi_box, 1,2,2,3)
+		self.scan_slider_table.attach(self.draw_roi_btn, 1,2,2,3)
 		self.scan_slider_table.attach(self.plot_3D_scan_btn, 2,3,2,3)
 		
 		self.scan_slider_skip_tsz.set_active(True)
@@ -548,62 +515,62 @@ class MyMainWindow(gtk.Window):
 
 		########################################## Check Buttons RIGHT PANEL ###################
 
-		self.right_panel = gtk.VBox(False,0)
+		self.right_panel = Gtk.VBox(False,0)
 
-		# self.detector_disposition_horizontal = gtk.ToggleButton("Rotate detector")
-		self.detector_disposition_horizontal = gtk.Button("Rotate detector")
+		# self.detector_disposition_horizontal = Gtk.ToggleButton("Rotate detector")
+		self.detector_disposition_horizontal = Gtk.Button("Rotate detector")
 		self.rotate_detector_n = 0
 		# self.detector_disposition_horizontal.set_sensitive(False)
 		self.detector_disposition_horizontal.connect("clicked", self.detector_disposition)
 		self.horizontal_detector = False #By default, the detector is in the vertical position, i.e. 960 rows x 560 cols
 
-		self.linear_scale_btn = gtk.ToggleButton("Log scale")
+		self.linear_scale_btn = Gtk.ToggleButton("Log scale")
 		self.linear_scale_btn.connect("toggled",self.log_update)
 
 		self.log_scale=0
 
-		self.adj_btn = gtk.CheckButton("Geometry correction")
+		self.adj_btn = Gtk.CheckButton("Geometry correction")
 		self.adj_btn.connect("toggled", self.plot_update)
 		
-		self.detector_space_btn = gtk.RadioButton(None, "Detector map")
+		self.detector_space_btn = Gtk.RadioButton(None, "Detector map")
 		self.detector_space_btn.set_active(True)
 		self.detector_space_btn.connect("toggled", self.plot_update)
 		
-		self.tth_chi_space_btn = gtk.RadioButton(self.detector_space_btn, "2Theta-Chi map")
+		self.tth_chi_space_btn = Gtk.RadioButton(self.detector_space_btn, "2Theta-Chi map")
 		self.tth_chi_space_btn.connect("toggled", self.plot_update)
 		
-		self.hk_space_btn = gtk.RadioButton(self.detector_space_btn, "HK map")
+		self.hk_space_btn = Gtk.RadioButton(self.detector_space_btn, "HK map")
 		self.hk_space_btn.connect("toggled", self.plot_update)
 		
-		self.hl_space_btn = gtk.RadioButton(self.detector_space_btn, "HL map")
+		self.hl_space_btn = Gtk.RadioButton(self.detector_space_btn, "HL map")
 		self.hl_space_btn.connect("toggled", self.plot_update)
 		
-		self.kl_space_btn = gtk.RadioButton(self.detector_space_btn, "KL map")
+		self.kl_space_btn = Gtk.RadioButton(self.detector_space_btn, "KL map")
 		self.kl_space_btn.connect("toggled", self.plot_update)
 		
-		self.q_space_btn = gtk.RadioButton(self.detector_space_btn, "Q map")
+		self.q_space_btn = Gtk.RadioButton(self.detector_space_btn, "Q map")
 		self.q_space_btn.connect("toggled", self.plot_update)
 
-		self.save_adj_btn = gtk.Button("Save Corrected EDF")
+		self.save_adj_btn = Gtk.Button("Save Corrected EDF")
 		self.save_adj_btn.connect("clicked",self.save_adjust)
 
-		self.separator = gtk.HSeparator()
-		#self.plotXYprofiles_btn = gtk.CheckButton("Plot X,Y profiles") #Plot a cross profile of X and Y data
-		self.plotXYprofiles_btn = gtk.RadioButton(None,"X,Y profiles")
+		self.separator = Gtk.HSeparator()
+		#self.plotXYprofiles_btn = Gtk.CheckButton("Plot X,Y profiles") #Plot a cross profile of X and Y data
+		self.plotXYprofiles_btn = Gtk.RadioButton(None,"X,Y profiles")
 		self.plotXYprofiles_btn.set_active(True)
-		self.arbitrary_profiles_btn = gtk.RadioButton(self.plotXYprofiles_btn,"Arbitrary profiles")
+		self.arbitrary_profiles_btn = Gtk.RadioButton(self.plotXYprofiles_btn,"Arbitrary profiles")
 
-		self.show_chi_delta_btn = gtk.CheckButton("Show 2Theta,Chi")
+		self.show_chi_delta_btn = Gtk.CheckButton("Show 2Theta,Chi")
 		self.show_chi_delta_btn.connect("toggled",self.show_chi_delta)
 		self.show_chi_delta_flag = False
-		self.show_chi_txt   = gtk.Label()
+		self.show_chi_txt   = Gtk.Label()
 		self.show_chi_txt.set_alignment(0,0)
-		self.show_delta_txt = gtk.Label()
+		self.show_delta_txt = Gtk.Label()
 		self.show_delta_txt.set_alignment(0,0)
-		self.show_d_txt = gtk.Label()
+		self.show_d_txt = Gtk.Label()
 		self.show_d_txt.set_alignment(0,0)
 		#### Pack these options in a table
-		self.option_table = gtk.Table(5,3,False) #5 rows, 3 cols, homogeneous
+		self.option_table = Gtk.Table(5,3,False) #5 rows, 3 cols, homogeneous
 		
 		self.option_table.attach(self.linear_scale_btn, 0,1,0,1)
 		self.option_table.attach(self.detector_disposition_horizontal, 1,2,0,1)
@@ -627,19 +594,19 @@ class MyMainWindow(gtk.Window):
 
 
 		### Options for profile plots
-		self.profiles_log_btn = gtk.ToggleButton("Y-Log")
+		self.profiles_log_btn = Gtk.ToggleButton("Y-Log")
 		self.profiles_log_btn.connect("toggled",self.profiles_update)
-		self.profiles_export_data_btn = gtk.Button("Export data")
+		self.profiles_export_data_btn = Gtk.Button("Export data")
 		self.profiles_export_data_btn.connect("clicked",self.profiles_export)
-		integration_width = gtk.Label(" Profile integration width: ")
+		integration_width = Gtk.Label(label=" Profile integration width: ")
 		
-		self.integration_width = gtk.Entry()
+		self.integration_width = Gtk.Entry()
 		self.integration_width.set_text("10")
-		self.integration_width.set_usize(40,0)
+		# self.integration_width.set_usize(40,0)
 		
-		self.tooltips.set_tip(self.integration_width,"Integration width in pixel. This is not applied to arbitrary profile")
+		self.integration_width.set_tooltip_text("Integration width in pixel. This is not applied to arbitrary profile")
 
-		self.profiles_option_box = gtk.HBox(False,0)
+		self.profiles_option_box = Gtk.HBox(False,0)
 		self.profiles_option_box.pack_start(self.profiles_log_btn, False, False, 0)
 		self.profiles_option_box.pack_start(self.profiles_export_data_btn, False, False, 0)
 		self.profiles_option_box.pack_start(integration_width, False,False,0)
@@ -662,32 +629,32 @@ class MyMainWindow(gtk.Window):
 
 
 		#### Results of fitted curves
-		self.fit_results_table = gtk.Table(7,3, False)
-		title = gtk.Label("Fitted results:")
-		self.chi_title = gtk.Label("Y")
-		self.tth_title = gtk.Label("X")
-		y0 = gtk.Label("y0:")
-		xc = gtk.Label("xc:")
-		A = gtk.Label("A:")
-		w = gtk.Label("FWHM:")
-		mu = gtk.Label("mu:")
+		self.fit_results_table = Gtk.Table(7,3, False)
+		title = Gtk.Label(label="Fitted results:")
+		self.chi_title = Gtk.Label(label="Y")
+		self.tth_title = Gtk.Label(label="X")
+		y0 = Gtk.Label(label="y0:")
+		xc = Gtk.Label(label="xc:")
+		A = Gtk.Label(label="A:")
+		w = Gtk.Label(label="FWHM:")
+		mu = Gtk.Label(label="mu:")
 		y0.set_alignment(0,0.5)
 		xc.set_alignment(0,0.5)
 		A.set_alignment(0,0.5)
 		w.set_alignment(0,0.5)
 		mu.set_alignment(0,0.5)
 
-		self.chi_fitted_y0 = gtk.Label()
-		self.chi_fitted_xc = gtk.Label()
-		self.chi_fitted_A = gtk.Label()
-		self.chi_fitted_w = gtk.Label()
-		self.chi_fitted_mu = gtk.Label()
+		self.chi_fitted_y0 = Gtk.Label()
+		self.chi_fitted_xc = Gtk.Label()
+		self.chi_fitted_A = Gtk.Label()
+		self.chi_fitted_w = Gtk.Label()
+		self.chi_fitted_mu = Gtk.Label()
 
-		self.tth_fitted_y0 = gtk.Label()
-		self.tth_fitted_xc = gtk.Label()
-		self.tth_fitted_A = gtk.Label()
-		self.tth_fitted_w = gtk.Label()
-		self.tth_fitted_mu = gtk.Label()
+		self.tth_fitted_y0 = Gtk.Label()
+		self.tth_fitted_xc = Gtk.Label()
+		self.tth_fitted_A = Gtk.Label()
+		self.tth_fitted_w = Gtk.Label()
+		self.tth_fitted_mu = Gtk.Label()
 
 		self.fit_results_table.attach(title,0,3,0,1)
 		self.fit_results_table.attach(self.chi_title,2,3,1,2)
@@ -719,51 +686,51 @@ class MyMainWindow(gtk.Window):
 
 		#hbox.pack_end(fixed,False,False,5)
 		self.page_single_figure.pack_end(self.right_panel,False, False,5)
-		self.notebook.append_page(self.page_single_figure,gtk.Label("EDF viewer"))
-		self.notebook.append_page(self.page_pole_figure,gtk.Label("Pole figure"))
-		self.notebook.append_page(self.page_batch_correction,gtk.Label("EDF batch correction"))
+		self.notebook.append_page(self.page_single_figure,Gtk.Label(label="EDF viewer"))
+		self.notebook.append_page(self.page_pole_figure,Gtk.Label(label="Pole figure"))
+		self.notebook.append_page(self.page_batch_correction,Gtk.Label(label="EDF batch correction"))
 		###################### PAGE 2: POLE FIGURES ###################################
-		self.left_panel_polefigure = gtk.VBox() #This box is to contain options for pole figure construction
-		self.right_panel_polefigure = gtk.VBox()
+		self.left_panel_polefigure = Gtk.VBox() #This box is to contain options for pole figure construction
+		self.right_panel_polefigure = Gtk.VBox()
 
-		self.images_used = gtk.Label("Use images")
+		self.images_used = Gtk.Label(label="Use images")
 		self.images_used.set_alignment(0,0.5)
-		self.images_from = gtk.Label("From #: ")
-		self.images_from_nb = gtk.Entry()
-		self.images_from_nb.set_usize(30,0)
+		self.images_from = Gtk.Label(label="From #: ")
+		self.images_from_nb = Gtk.Entry()
+		# self.images_from_nb.set_usize(30,0)
 		self.images_from.set_alignment(0,0.5)
 
-		self.images_to   = gtk.Label("To #: ")
-		self.images_to_nb = gtk.Entry()
-		self.images_to_nb.set_usize(30,0)
+		self.images_to   = Gtk.Label(label="To #: ")
+		self.images_to_nb = Gtk.Entry()
+		# self.images_to_nb.set_usize(30,0)
 		self.images_to.set_alignment(0,0.5)
 
-		self.pole_2theta_txt  = gtk.Label("2 Theta: ")
-		self.pole_2theta_field = gtk.Entry()
-		self.pole_2theta_field.set_usize(30,0)
+		self.pole_2theta_txt  = Gtk.Label(label="2 Theta: ")
+		self.pole_2theta_field = Gtk.Entry()
+		# self.pole_2theta_field.set_usize(30,0)
 		self.pole_2theta_txt.set_alignment(0,0.5)
 		
-		self.pole_chi_min_txt  = gtk.Label("Chi minimum: ")
-		self.PF_chi_min = gtk.Entry()
-		self.PF_chi_min.set_usize(30,0)
+		self.pole_chi_min_txt  = Gtk.Label(label="Chi minimum: ")
+		self.PF_chi_min = Gtk.Entry()
+		# self.PF_chi_min.set_usize(30,0)
 		self.pole_chi_min_txt.set_alignment(0,0.5)
 
-		self.select_phi = gtk.RadioButton(None, "Plot PHI")
-		self.select_kphi= gtk.RadioButton(self.select_phi, "Plot KPHI")
+		self.select_phi = Gtk.RadioButton(None, "Plot PHI")
+		self.select_kphi= Gtk.RadioButton(self.select_phi, "Plot KPHI")
 
-		#self.check_chi_positive = gtk.CheckButton("Chi positive only")
+		#self.check_chi_positive = Gtk.CheckButton("Chi positive only")
 		#self.check_chi_positive.set_size_request(180,30)
 		#self.check_chi_positive.connect("toggled", self.chi_positive_only)
 
-		self.plot_pole_figure_btn = gtk.Button("Plot")
+		self.plot_pole_figure_btn = Gtk.Button("Plot")
 		self.plot_pole_figure_btn.set_size_request(60,30)
 		self.plot_pole_figure_btn.connect("clicked",self.plot_pole_figure)
-		self.log_pole_figure_btn = gtk.ToggleButton("Log scale")
+		self.log_pole_figure_btn = Gtk.ToggleButton("Log scale")
 		self.log_pole_figure_btn.set_size_request(60,30)
 		self.log_pole_figure_btn.connect("toggled", self.replot_PF)
-		self.data_loading = gtk.ProgressBar()
+		self.data_loading = Gtk.ProgressBar()
 
-		self.input_table = gtk.Table(5,2,True) #rows, cols, homogeneous
+		self.input_table = Gtk.Table(5,2,True) #rows, cols, homogeneous
 		self.input_table.attach(self.images_from, 0,1,0,1)
 		self.input_table.attach(self.images_from_nb, 1,2,0,1)
 		self.input_table.attach(self.images_to, 0,1,1,2)
@@ -800,57 +767,57 @@ class MyMainWindow(gtk.Window):
 		#*****************************************************************************
 		#                  PAGE 3: CORRECTION OF A BATCH EDF
 		#*****************************************************************************
-		self.table_1 = gtk.Table(3,3, False)
-		self.table_2 = gtk.Table(7,5, False)
-		self.t1_src_folder_txt= gtk.Label("Source folder:")
+		self.table_1 = Gtk.Table(3,3, False)
+		self.table_2 = Gtk.Table(7,5, False)
+		self.t1_src_folder_txt= Gtk.Label(label="Source folder:")
 		self.t1_src_folder_txt.set_alignment(0,0.5)
-		self.t1_src_path  = gtk.Entry()
-		self.t1_src_path.set_usize(100,0)
+		self.t1_src_path  = Gtk.Entry()
+		# self.t1_src_path.set_usize(100,0)
 		
-		self.t1_src_button= gtk.Button("Browse")
+		self.t1_src_button= Gtk.Button("Browse")
 		self.t1_src_button.connect("clicked", self.select_source_folder)
 		
-		self.t1_des_folder_txt = gtk.Label("Destination folder:")
+		self.t1_des_folder_txt = Gtk.Label(label="Destination folder:")
 		self.t1_des_folder_txt.set_alignment(0,0.5)
-		self.t1_des_path = gtk.Entry()
-		self.t1_des_path.set_usize(100,0)
-		self.t1_des_button = gtk.Button("Browse")
+		self.t1_des_path = Gtk.Entry()
+		# self.t1_des_path.set_usize(100,0)
+		self.t1_des_button = Gtk.Button("Browse")
 		self.t1_des_button.connect("clicked", self.select_destination_folder)
 		
-		self.t1_dark_img_txt = gtk.Label("Dark image:")
+		self.t1_dark_img_txt = Gtk.Label(label="Dark image:")
 		self.t1_dark_img_txt.set_alignment(0,0.5)
-		self.t1_dark_img_path = gtk.Entry()
-		self.t1_dark_img_path.set_usize(100,0)
-		self.t1_dark_img_button = gtk.Button("Browse")
+		self.t1_dark_img_path = Gtk.Entry()
+		# self.t1_dark_img_path.set_usize(100,0)
+		self.t1_dark_img_button = Gtk.Button("Browse")
 		self.t1_dark_img_button.connect("clicked", self.select_dark_image)
 		self.batch_DARK_CORRECTION = False
 		
-		self.t2_detector_txt = gtk.Label("Detector: ")
+		self.t2_detector_txt = Gtk.Label(label="Detector: ")
 		self.t2_detector_txt.set_alignment(0,0.5)
-		self.t2_det_combobox = gtk.combo_box_new_text()
+		self.t2_det_combobox = Gtk.ComboBoxText()
 		self.t2_det_combobox.append_text("D1")
 		self.t2_det_combobox.append_text("D5")
 		self.t2_det_combobox.append_text("S70")
 		self.t2_det_combobox.set_active(1)
 		self.t2_det_combobox.connect("changed", self.batch_change_detector)
 		
-		self.d1_specfile_txt = gtk.Label("Spec file:")
+		self.d1_specfile_txt = Gtk.Label(label="Spec file:")
 		self.d1_specfile_txt.set_alignment(1,0.5)
-		self.d1_specfile_path = gtk.Entry()
-		self.d1_specfile_browse = gtk.Button("Browse")
+		self.d1_specfile_path = Gtk.Entry()
+		self.d1_specfile_browse = Gtk.Button("Browse")
 		self.d1_specfile_browse.connect("clicked", self.select_normalisation_file,self.d1_specfile_path)
 		
-		self.d1_center_txt = gtk.Label("Center, separated by comma (X,Y):")
+		self.d1_center_txt = Gtk.Label("Center, separated by comma (X,Y):")
 		self.d1_center_txt.set_alignment(1,0.5)
-		self.d1_center = gtk.Entry()
+		self.d1_center = Gtk.Entry()
 		
-		self.d1_distance_txt = gtk.Label("Distance (mm):")
+		self.d1_distance_txt = Gtk.Label(label="Distance (mm):")
 		self.d1_distance_txt.set_alignment(1,0.5)
-		self.d1_distance = gtk.Entry()
+		self.d1_distance = Gtk.Entry()
 		
-		self.t2_monitor_txt = gtk.Label("Monitor counter: ")
+		self.t2_monitor_txt = Gtk.Label(label="Monitor counter: ")
 		self.t2_monitor_txt.set_alignment(0,0.5)
-		self.t2_mon_combobox = gtk.combo_box_new_text()
+		self.t2_mon_combobox = Gtk.ComboBoxText()
 		self.t2_mon_combobox.append_text("vct1")
 		self.t2_mon_combobox.append_text("vct2")
 		self.t2_mon_combobox.append_text("vct3")
@@ -866,36 +833,36 @@ class MyMainWindow(gtk.Window):
 		self.t2_mon_combobox.append_text("roi4")
 		self.t2_mon_combobox.set_active(0)
 		
-		self.t2_ref_mon_txt = gtk.Label("Reference monitor (?):")
+		self.t2_ref_mon_txt = Gtk.Label(label="Reference monitor (?):")
 		self.t2_ref_mon_txt.set_alignment(0,0.5)
-		self.t2_ref_mon_entry = gtk.Entry()
-		self.t2_img_start_txt = gtk.Label("Image begin (?):")
+		self.t2_ref_mon_entry = Gtk.Entry()
+		self.t2_img_start_txt = Gtk.Label(label="Image begin (?):")
 		self.t2_img_start_txt.set_alignment(0,0.5)
-		self.t2_img_start_entry = gtk.Entry()
-		self.t2_img_end_txt = gtk.Label("Image end (?):")
+		self.t2_img_start_entry = Gtk.Entry()
+		self.t2_img_end_txt = Gtk.Label(label="Image end (?):")
 		self.t2_img_end_txt.set_alignment(0,0.5)
-		self.t2_img_end_entry = gtk.Entry()
-		self.t2_combine_XY = gtk.Label("Combination of X,Y translated images (n & n+1)")
+		self.t2_img_end_entry = Gtk.Entry()
+		self.t2_combine_XY = Gtk.Label("Combination of X,Y translated images (n & n+1)")
 		self.t2_combine_XY.set_alignment(0,0.5)
-		self.combine_XY = gtk.CheckButton()
-		self.t2_ascii_out = gtk.Label("Save data as ASCII file")
+		self.combine_XY = Gtk.CheckButton()
+		self.t2_ascii_out = Gtk.Label(label="Save data as ASCII file")
 		self.t2_ascii_out.set_alignment(0,0.5)
-		self.ascii_out = gtk.CheckButton()
+		self.ascii_out = Gtk.CheckButton()
 		
-		self.t2_tooltip = gtk.Tooltips()
-		self.t2_tooltip.set_tip(self.t2_ref_mon_txt, "Reference value of the monitor which corresponds to the highest value of the current machine. This is for the data normalization. If empty, the data will not be normalized")
-		self.t2_tooltip.set_tip(self.t2_img_start_txt, "Starting image to be corrected. If empty the whole folder will be proceeded.")
-		self.t2_tooltip.set_tip(self.t2_img_end_txt, "Ending image to be corrected. If empty the whole folder will be proceeded.")
+		self.t2_tooltip = Gtk.Tooltip()
+		self.t2_ref_mon_txt.set_tooltip_text("Reference value of the monitor which corresponds to the highest value of the current machine. This is for the data normalization. If empty, the data will not be normalized")
+		self.t2_img_start_txt.set_tooltip_text("Starting image to be corrected. If empty the whole folder will be proceeded.")
+		self.t2_img_end_txt.set_tooltip_text("Ending image to be corrected. If empty the whole folder will be proceeded.")
 		
-		self.run_button = gtk.Button("RUN")
+		self.run_button = Gtk.Button("RUN")
 		self.run_button.connect("clicked", self.batch_transform)
-		self.run_button.set_usize(30,0)
+		# self.run_button.set_usize(30,0)
 		self.run_button.set_alignment(0.5,0.5)
-		separator = gtk.HSeparator()
-		self.show_process = gtk.Label("Processing:")
+		separator = Gtk.HSeparator()
+		self.show_process = Gtk.Label(label="Processing:")
 		self.show_process.set_alignment(0,0.5)
-		self.show_process_info = gtk.Label()
-		self.progressbar = gtk.ProgressBar()
+		self.show_process_info = Gtk.Label()
+		self.progressbar = Gtk.ProgressBar()
 		
 		
 		#**** Packaging *************************************************************
@@ -933,12 +900,12 @@ class MyMainWindow(gtk.Window):
 		self.table_2.attach(self.d1_distance,3,4,2,3)
 		
 		
-		self.page_batch_correction_container = gtk.VBox()
+		self.page_batch_correction_container = Gtk.VBox()
 		self.page_batch_correction_container.pack_start(self.table_1, False, False, 10)
 		self.page_batch_correction_container.pack_start(self.table_2, False, False, 10)
 		self.page_batch_correction_container.pack_start(self.run_button, False, False, 10)
 		#self.page_batch_correction_container.pack_start(separator, False, False, 10)
-		self.table_3 = gtk.Table(1,2,False)
+		self.table_3 = Gtk.Table(1,2,False)
 		self.table_3.attach(self.show_process, 0,1,0,1)
 		self.table_3.attach(self.show_process_info,1,2,0,1)
 		self.page_batch_correction_container.pack_start(self.table_3, False, False, 10)
@@ -946,20 +913,20 @@ class MyMainWindow(gtk.Window):
 		self.page_batch_correction.pack_start(self.page_batch_correction_container, False, False, 20)
 		
 		###################### PACK THE NOTEBOOK #####################################
-		hbox.pack_start(self.notebook)
+		hbox.pack_start(self.notebook, True, True, 0)
 		vbox.pack_start(hbox,True,True,0)
 		############################### Sliders ######################################
-		#sld_box = gtk.Fixed()
-		sld_box = gtk.HBox(False,2)
+		#sld_box = Gtk.Fixed()
+		sld_box = Gtk.HBox(False,2)
 
-		self.vmin_txt = gtk.Label("Vmin")
+		self.vmin_txt = Gtk.Label(label="Vmin")
 		self.vmin_txt.set_alignment(0,0.5)
-		#self.vmin_txt.set_justify(gtk.JUSTIFY_CENTER)
-		self.vmax_txt = gtk.Label("Vmax")
+		#self.vmin_txt.set_justify(Gtk.Justification.CENTER)
+		self.vmax_txt = Gtk.Label(label="Vmax")
 		self.vmax_txt.set_alignment(0,0.5)
-		#self.vmax_txt.set_justify(gtk.JUSTIFY_CENTER)
-		self.sld_vmin = gtk.HScale()
-		self.sld_vmax = gtk.HScale()
+		#self.vmax_txt.set_justify(Gtk.Justification.CENTER)
+		self.sld_vmin = Gtk.HScale()
+		self.sld_vmax = Gtk.HScale()
 
 		self.sld_vmin.set_size_request(200,25)
 		self.sld_vmax.set_size_request(200,25)
@@ -970,25 +937,29 @@ class MyMainWindow(gtk.Window):
 		self.sld_vmin.connect('value-changed',self.scale_update)
 		self.sld_vmax.connect('value-changed',self.scale_update)
 
-		vmax_spin_adj         = gtk.Adjustment(self.vmax, 0, self.vmax_range, 0.5, 10.0, 0.0)
-		self.vmax_spin_btn    = gtk.SpinButton(vmax_spin_adj,1,1)
+		vmax_spin_adj         = Gtk.Adjustment(self.vmax, 0, self.vmax_range, 0.5, 10.0, 0.0)
+		# self.vmax_spin_btn    = Gtk.SpinButton(vmax_spin_adj,1,1)
+		self.vmax_spin_btn    = Gtk.SpinButton()
+		self.vmax_spin_btn.set_adjustment(vmax_spin_adj )
 		self.vmax_spin_btn.set_numeric(True)
 		#self.vmax_spin_btn.set_wrap(True)
-		self.vmax_spin_btn.set_update_policy(gtk.UPDATE_IF_VALID)
+		self.vmax_spin_btn.set_update_policy(Gtk.SpinButtonUpdatePolicy.IF_VALID)
 		self.vmax_spin_btn.set_size_request(80,-1)
 		#self.vmax_spin_btn.set_alignment(0,0.5)
 		self.vmax_spin_btn.connect('value-changed',self.scale_update_spin)
 
-		vmin_spin_adj         = gtk.Adjustment(self.vmin, 0, self.vmax_range, 0.5, 10.0, 0.0)
-		self.vmin_spin_btn    = gtk.SpinButton(vmin_spin_adj,1,1)
+		vmin_spin_adj         = Gtk.Adjustment(self.vmin, 0, self.vmax_range, 0.5, 10.0, 0.0)
+		# self.vmin_spin_btn    = Gtk.SpinButton(vmin_spin_adj,1,1)
+		self.vmin_spin_btn    = Gtk.SpinButton()
+		self.vmin_spin_btn.set_adjustment(vmin_spin_adj)
 		self.vmin_spin_btn.set_numeric(True)
 		#self.vmin_spin_btn.set_wrap(True)
-		self.vmin_spin_btn.set_update_policy(gtk.UPDATE_IF_VALID)
+		self.vmin_spin_btn.set_update_policy(Gtk.SpinButtonUpdatePolicy.IF_VALID)
 		self.vmin_spin_btn.set_size_request(80,-1)
 		#self.vmax_spin_btn.set_alignment(0,0.5)
 		self.vmin_spin_btn.connect('value-changed',self.scale_update_spin)
 
-		self.slider_reset_btn = gtk.Button("Reset")
+		self.slider_reset_btn = Gtk.Button("Reset")
 		self.slider_reset_btn.set_size_request(50,30)
 		self.slider_reset_btn.set_alignment(1,0.5)
 		self.slider_reset_btn.connect('clicked',self.reset_scale)
@@ -1004,22 +975,22 @@ class MyMainWindow(gtk.Window):
 		vbox.pack_start(sld_box,False,False,5)
 
 		################# Status bar #################################################
-		#self.status_bar = gtk.EventBox()
-		#self.status_bar = gtk.HBox(False,2)
-		##self.status_bar.modify_bg(gtk.STATE_NORMAL, self.status_bar.get_colormap().alloc_color("white"))
-		#self.stt = gtk.Fixed()
-		#self.x_pos = gtk.Label("X =")
-		#self.y_pos = gtk.Label("Y =")
-		#self.z_pos = gtk.Label("Z =")
-		##self.edf_pos = gtk.Label("EDF choosen: ")
-		#self.del_pos = gtk.Label()
-		#self.eta_pos = gtk.Label()
-		#self.phi_pos = gtk.Label()
-		#self.kphi_pos = gtk.Label()
-		#self.chi_pos = gtk.Label()
-		#self.nu_pos  = gtk.Label()
-		#self.mu_pos  = gtk.Label()
-		#self.time_pos  = gtk.Label()
+		#self.status_bar = Gtk.EventBox()
+		#self.status_bar = Gtk.HBox(False,2)
+		##self.status_bar.modify_bg(Gtk.StateType.NORMAL, self.status_bar.get_colormap().alloc_color("white"))
+		#self.stt = Gtk.Fixed()
+		#self.x_pos = Gtk.Label(label="X =")
+		#self.y_pos = Gtk.Label(label="Y =")
+		#self.z_pos = Gtk.Label(label="Z =")
+		##self.edf_pos = Gtk.Label(label="EDF choosen: ")
+		#self.del_pos = Gtk.Label()
+		#self.eta_pos = Gtk.Label()
+		#self.phi_pos = Gtk.Label()
+		#self.kphi_pos = Gtk.Label()
+		#self.chi_pos = Gtk.Label()
+		#self.nu_pos  = Gtk.Label()
+		#self.mu_pos  = Gtk.Label()
+		#self.time_pos  = Gtk.Label()
 		#self.stt.put(self.x_pos,10,5)
 		#self.stt.put(self.y_pos,70,5)
 		#self.stt.put(self.z_pos,130,5)
@@ -1033,31 +1004,31 @@ class MyMainWindow(gtk.Window):
 		#self.stt.put(self.mu_pos,790,5)
 		#self.stt.put(self.time_pos,880, 5)
 		#self.status_bar.add(self.stt)
-		self.status_bar = gtk.Table(1,22,True)
-		self.x_pos_txt = gtk.Label("X: ")
-		self.y_pos_txt = gtk.Label("Y: ")
-		self.z_pos_txt = gtk.Label("Z: ")
-		self.x_pos = gtk.Label()
-		self.y_pos = gtk.Label()
-		self.z_pos = gtk.Label()
+		self.status_bar = Gtk.Table(1,22,True)
+		self.x_pos_txt = Gtk.Label(label="X: ")
+		self.y_pos_txt = Gtk.Label(label="Y: ")
+		self.z_pos_txt = Gtk.Label(label="Z: ")
+		self.x_pos = Gtk.Label()
+		self.y_pos = Gtk.Label()
+		self.z_pos = Gtk.Label()
 		
-		self.del_pos_txt = gtk.Label()
-		self.eta_pos_txt = gtk.Label()
-		self.phi_pos_txt = gtk.Label()
-		self.kphi_pos_txt= gtk.Label()
-		self.chi_pos_txt = gtk.Label()
-		self.nu_pos_txt  = gtk.Label()
-		self.mu_pos_txt  = gtk.Label()
-		self.time_pos_txt= gtk.Label()
+		self.del_pos_txt = Gtk.Label()
+		self.eta_pos_txt = Gtk.Label()
+		self.phi_pos_txt = Gtk.Label()
+		self.kphi_pos_txt= Gtk.Label()
+		self.chi_pos_txt = Gtk.Label()
+		self.nu_pos_txt  = Gtk.Label()
+		self.mu_pos_txt  = Gtk.Label()
+		self.time_pos_txt= Gtk.Label()
 		
-		self.del_pos = gtk.Label()
-		self.eta_pos = gtk.Label()
-		self.phi_pos = gtk.Label()
-		self.kphi_pos = gtk.Label()
-		self.chi_pos = gtk.Label()
-		self.nu_pos  = gtk.Label()
-		self.mu_pos  = gtk.Label()
-		self.time_pos  = gtk.Label()
+		self.del_pos = Gtk.Label()
+		self.eta_pos = Gtk.Label()
+		self.phi_pos = Gtk.Label()
+		self.kphi_pos = Gtk.Label()
+		self.chi_pos = Gtk.Label()
+		self.nu_pos  = Gtk.Label()
+		self.mu_pos  = Gtk.Label()
+		self.time_pos  = Gtk.Label()
 		
 		self.x_pos_txt.set_alignment(1,0.5)
 		self.x_pos.set_alignment(0,0.5)
@@ -1089,24 +1060,27 @@ class MyMainWindow(gtk.Window):
 		self.status_bar.attach(self.z_pos_txt,4,5,0,1)
 		self.status_bar.attach(self.z_pos,5,6,0,1)
 		
-		
-		self.status_bar.attach(self.eta_pos_txt,6,7,0,1)
-		self.status_bar.attach(self.eta_pos,7,8,0,1)
-		self.status_bar.attach(self.chi_pos_txt,8,9,0,1)
-		self.status_bar.attach(self.chi_pos,9,10,0,1)
+		self.status_bar.attach(self.del_pos_txt,6,7,0,1)
+		self.status_bar.attach(self.del_pos,7,8,0,1)
+		self.status_bar.attach(self.eta_pos_txt,8,9,0,1)
+		self.status_bar.attach(self.eta_pos,9,10,0,1)
 		self.status_bar.attach(self.phi_pos_txt,10,11,0,1)
 		self.status_bar.attach(self.phi_pos,11,12,0,1)
-		self.status_bar.attach(self.nu_pos_txt,12,13,0,1)
-		self.status_bar.attach(self.nu_pos,13,14,0,1)
-		self.status_bar.attach(self.del_pos_txt,14,15,0,1)
-		self.status_bar.attach(self.del_pos,15,16,0,1)
-		self.status_bar.attach(self.time_pos_txt,16,17,0,1)
-		self.status_bar.attach(self.time_pos,17,18,0,1)
+		self.status_bar.attach(self.kphi_pos_txt,12,13,0,1)
+		self.status_bar.attach(self.kphi_pos,13,14,0,1)
+		self.status_bar.attach(self.chi_pos_txt,14,15,0,1)
+		self.status_bar.attach(self.chi_pos,15,16,0,1)
+		self.status_bar.attach(self.nu_pos_txt,16,17,0,1)
+		self.status_bar.attach(self.nu_pos,17,18,0,1)
+		self.status_bar.attach(self.mu_pos_txt,18,19,0,1)
+		self.status_bar.attach(self.mu_pos,19,20,0,1)
+		self.status_bar.attach(self.time_pos_txt,20,21,0,1)
+		self.status_bar.attach(self.time_pos,21,22,0,1)
 		
 		vbox.pack_start(self.status_bar,False,False,0)
 		
 		self.add(vbox)
-		self.connect("destroy", gtk.main_quit)
+		self.connect("destroy", Gtk.main_quit)
 		self.show_all()
 		self.progressbar.hide()
 		self.data_loading.hide()
@@ -1119,14 +1093,6 @@ class MyMainWindow(gtk.Window):
 		self.d1_specfile_txt.hide()
 
 ######################################## Definitions ########################################################################
-	def instrument_config(self, widget):
-		global _SPEC_IMG_COL ,_IMG_NUMBER_SEPARATOR, _IMG_FORMAT ,_DETECTOR_NAME , _DETECTOR_PIXELS ,_PIXEL_SIZE ,_DETECTOR_ROTATIONS, _DETECTOR_MOTORS, _DETECTOR_ROTATION_DIRECTIONS,_DETECTOR_PIXEL_DIRECTIONS, _SAMPLE_ROTATIONS , _SAMPLE_ROTATION_DIRECTIONS, _SAMPLE_ROTATION_MOTORS , _XRAY_INCIDENT_BEAM_DIRECTION
-		
-		#self.popup_info('info', "When the instrument is configured, please quit the application and restart it to take into account the changes. This feature will be changed in future release.")
-		
-		filename = join(DEVA_dir, "Instrument_configuration.DEVA")
-		os.system("gedit  %s >/dev/null < /dev/null " % (filename),)
-
 	def pro_format_coord(self,x,y):
 		if abs(x)>10000:
 			fmtx = '%.2e'%x
@@ -1215,28 +1181,28 @@ class MyMainWindow(gtk.Window):
 	def popup_info(self,info_type,text):
 		""" info_type = WARNING, INFO, QUESTION, ERROR """
 		if info_type.upper() == "WARNING":
-			mess_type = gtk.MESSAGE_WARNING
+			mess_type = Gtk.MessageType.WARNING
 		elif info_type.upper() == "INFO":
-			mess_type = gtk.MESSAGE_INFO
+			mess_type = Gtk.MessageType.INFO
 		elif info_type.upper() == "ERROR":
-			mess_type = gtk.MESSAGE_ERROR
+			mess_type = Gtk.MessageType.ERROR
 		elif info_type.upper() == "QUESTION":
-			mess_type = gtk.MESSAGE_QUESTION
+			mess_type = Gtk.MessageType.QUESTION
 
-		self.warning=gtk.MessageDialog(self, gtk.DIALOG_DESTROY_WITH_PARENT, mess_type, gtk.BUTTONS_CLOSE,text)
+		self.warning=Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT, mess_type, Gtk.ButtonsType.CLOSE,text)
 		self.warning.run()
 		self.warning.destroy()
 
 	def load_calibration(self, widget):
 		""" load a pre-calib file , PONI file """
 		if self.loadcalibtb.get_active():
-			dialog = gtk.FileChooserDialog("Select a PONI file",None,gtk.FILE_CHOOSER_ACTION_OPEN,(gtk.STOCK_CANCEL,gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
-			filtre = gtk.FileFilter()
+			dialog = Gtk.FileChooserDialog("Select a PONI file",None,Gtk.FileChooserAction.OPEN,(Gtk.STOCK_CANCEL,Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
+			filtre = Gtk.FileFilter()
 			filtre.set_name("PONI")
 			filtre.add_pattern("*.poni")
 			dialog.add_filter(filtre)
 			response = dialog.run()
-			if response == gtk.RESPONSE_OK:
+			if response == Gtk.ResponseType.OK:
 				self.ponifile = dialog.get_filename().decode('utf8')
 				print "Calibration file is: ",self.ponifile
 				self.azimuthalIntegration = pyFAI.load(self.ponifile)
@@ -1259,7 +1225,7 @@ class MyMainWindow(gtk.Window):
 			self.geometry_distance.set_text(str(self.distance))
 			self.geometry_direct_beam.set_text(str(self.direct_beam[0])+","+str(self.direct_beam[1]))
 			
-			tmp_dir  = DEVA_dir
+			tmp_dir  = tempfile.gettempdir()
 			geo_name = join(tmp_dir,"Geo_config.DEVA")
 			geo_file = open(geo_name,"w")
 			in_plane = self.geometry_substrate_inplane.get_text()
@@ -1302,11 +1268,8 @@ class MyMainWindow(gtk.Window):
 		poni1 = self.direct_beam[1]*_PIXEL_SIZE
 		poni2 = self.direct_beam[0]*_PIXEL_SIZE
 		self.wavelength = h*c/e/self.energy
-
-		self.qconv.energy = self.energy
 				
 		if self.UB_MATRIX_LOAD:
-			self.qconv.UB = self.UB_MATRIX
 			self.experiment = xrayutilities.HXRD([1,0,0],[0,0,1], en=self.energy, qconv=self.qconv)
 		else:
 			substrate = self.geometry_substrate.get_active_text()
@@ -1359,7 +1322,7 @@ class MyMainWindow(gtk.Window):
 			else:
 				MSSG+= "\nYou donot have a UB matrix, nor a substrate. A UB equal to unity will be applied\n"
 		self.popup_info("info",MSSG)
-		tmp_dir  = DEVA_dir
+		tmp_dir  = tempfile.gettempdir()
 		geo_name = join(tmp_dir,"Geo_config.DEVA")
 		geo_file = open(geo_name,"w")
 		in_plane = self.geometry_substrate_inplane.get_text()
@@ -1434,12 +1397,11 @@ class MyMainWindow(gtk.Window):
 
 	def check_azimuthal_integrator(self):
 		if not self.calibrated_quantitative:
-			if self.experiment_type=="GISAXS":
-				if hasattr(self,'det_outer'): self.nu = 0.0
+			if self.manip == "gisaxs" or self.manip == "saxsext" or self.experiment_type=="GISAXS":
+				self.nu = 0.0
 				self.delta = 0.0
-			#if _DETECTOR_ROTATIONS==2:			
-			rot1 = N.radians(self.pyFAI_rot1)*(-1.)
-			rot2 = N.radians(self.pyFAI_rot2)*(-1.)
+			rot1 = N.radians(self.nu)*(-1.)
+			rot2 = N.radians(self.delta)*(-1.)
 			rot3 = N.radians(90-self.chi)
 			self.azimuthalIntegration.rot1 = rot1
 			self.azimuthalIntegration.rot2 = rot2
@@ -1477,72 +1439,64 @@ class MyMainWindow(gtk.Window):
 				self.manip = "Unknown"
 		
 	def read_header(self,header):
-		self.counter = get_counters(header)
-		self.motor = get_motors(header)
-		motor_mne = self.motor.keys()
-		self.count_time = self.counter['sec']
-		self.det_inner = self.motor[_DETECTOR_MOTORS[-1]]
-		self.delta = self.det_inner
-		self.th    = self.motor[_SAMPLE_ROTATION_MOTORS[0]]
-		self.chi   = self.motor[_SAMPLE_ROTATION_MOTORS[1]]
-		self.phi   = self.motor[_SAMPLE_ROTATION_MOTORS[2]]
-		if _DETECTOR_ROTATIONS==2:
-			self.det_outer = self.motor[_DETECTOR_MOTORS[0]]
-			self.nu = self.det_outer
-		if len(_DETECTOR_ROTATION_DIRECTIONS) == 1:
-			rotd1 = _DETECTOR_ROTATION_DIRECTIONS[0]
-			if 'z' in rotd1:
-				self.pyFAI_rot1 = self.det_inner
-				self.pyFAI_rot2 = 0
-			elif 'y' in rotd1:
-				self.pyFAI_rot2 = self.det_inner
-				self.pyFAI_rot1 = 0
-		if len(_DETECTOR_ROTATION_DIRECTIONS) == 2:
-			rotd1 = _DETECTOR_ROTATION_DIRECTIONS[0]
-			rotd2 = _DETECTOR_ROTATION_DIRECTIONS[1]
-			if 'z' in rotd1:
-				self.pyFAI_rot1 = self.det_outer
-			elif 'y' in rotd1:
-				self.pyFAI_rot2 = self.det_outer
-			if 'z' in rotd2:
-				self.pyFAI_rot1 = self.det_inner
-			elif 'y' in rotd2:
-				self.pyFAI_rot2 = self.det_inner
+		if self.detector_type != "D1":
+			self.counter = get_counters(header)
+			self.motor = get_motors(header)
+			motor_mne = self.motor.keys()
+			if len(motor_mne)>1:
+				if 'xsamp' in motor_mne:
+					self.manip = "gisaxs"
+				elif 'del' in motor_mne:
+					self.manip = "kappapsic"
+				elif 'tth' in motor_mne:
+					self.manip = "fourc"
+				else:
+					self.manip = "Unknown"
+			if self.manip == "kappapsic":
+				self.delta = self.motor['del']
+				self.eta   = self.motor['eta']
+				self.chi   = self.motor['chi']
+				self.phi   = self.motor['phi']
+				self.nu    = self.motor['nu']
+				self.mu    = self.motor['mu']
+				self.kphi  = self.motor['kphi']
+			
+			elif self.manip == "fourc":
+				self.delta = self.motor['tth']
+				self.eta   = self.motor['th']
+				self.chi   = self.motor['chi']
+				self.phi   = self.motor['phi']
+				self.nu    = self.motor['nu']
+				self.mu    = self.motor['mu']
+				self.kphi  = self.motor['kphi']
+				
+			elif self.manip == "gisaxs":
+				self.delta = 0
+				self.eta = 0
+				self.phi = self.kphi = self.chi = self.nu = self.mu = 0			
+			self.count_time = self.counter['sec']
+		else:
+			self.del_pos_txt.set_text("For instant the header of D1 detector is not stored in the image. We have to write some code to read motor info from spec file")
+			self.manip = "Unknown"
+			self.count_time=0
+			#pass
 		
 	def on_changed_edf(self,widget,row,col):
-		""" Change EDF by double clicking on the file name 
-		model = TreeModel, row = path to the selected row, col = column of the selected item. The path has the format: (i,j,k) where i is the grand-parent row index, 
-		j is the parent index and k is the child index. Index starting from 0. Children of the top-level parent has the path (i,).
-		Remember: self.store_img = {'folder1': {prefix1: [img_list], prefix2: [img_list],...}, folder2: {}, ...}
-		"""
+		""" Change EDF by double clicking on the file name """
 		self.clear_notes()
 		self.init_image()
-		treeSelection = self.treeView.get_selection()
-		(model, item) = treeSelection.get_selected()
-		#print "selected edf: ",model[row][0]
+		model = widget.get_model()
+		#print "TRA CHOOSE: ",model
+		#print "ROW: ",row,len(row)
+		#print "MODEL[ROW]: ",model[row]
 		self.edf_choosen = model[row][0]
-		#Getting prefix:
-		tmp=self.edf_choosen.split("_")
-		if len(tmp)>2:
-			prefix=""
-			for p in xrange(len(tmp)-1):
-				prefix=prefix+tmp[p]+"_"
-		else:
-			prefix=tmp[0]+"_"
-		self.current_prefix = prefix		
-		if len(row)==1:
-			#print "selected parent: ",self.current_folder
-			self.edf_folder = self.current_folder
-		elif len(row)>1:
-			parent_item = model.iter_parent(item)
-			parent_path = model.get_path(parent_item)
-			#print "selected parent: ",model[parent_path][0]
-			parent_path_basename = model[parent_path][0]
-			self.edf_folder = join(self.current_folder, parent_path_basename)
-				
-		#print "edf_folder: ",self.edf_folder
+		self.edf_folder = self.current_folder
+		if len(row)==2:
+			#print "Selected Directory: ",model[row[0]][0]
+			self.edf_folder = join(self.current_folder,model[row[0]][0])
+			#print "edf_folder: ",self.edf_folder
 		self.edf = join(self.edf_folder,self.edf_choosen)
-		print "Selected image: ",self.edf
+		#self.edf_pos.set_text("EDF choosen:  %s"%self.edf_choosen)
 		try:
 			self.MAIN_TITLE.set_text(self.edf_choosen,fontsize=18)
 		except:
@@ -1557,25 +1511,68 @@ class MyMainWindow(gtk.Window):
 			self.fabioIMG.data = N.flipud(self.fabioIMG.data)
 		#print self.header
 		self.read_header(self.header)
+		if self.manip == "kappapsic":
+			self.del_pos_txt.set_text("Del: ")
+			self.eta_pos_txt.set_text("Eta: ")
+			self.phi_pos_txt.set_text("Phi: ")
+			self.kphi_pos_txt.set_text("Kphi: ")
+			self.chi_pos_txt.set_text("Chi: ")
+			self.nu_pos_txt.set_text("Nu: ")
+			self.mu_pos_txt.set_text("Mu: ")
+			
+			self.del_pos.set_text("%.2f"%self.delta)
+			self.eta_pos.set_text("%.2f"%self.eta)
+			self.phi_pos.set_text("%.2f"%self.phi)
+			self.kphi_pos.set_text("%.2f"%self.kphi)
+			self.chi_pos.set_text("%.2f"%self.chi)
+			self.nu_pos.set_text("%.2f"%self.nu)
+			self.mu_pos.set_text("%.2f"%self.mu)
+			
+		elif self.manip == "fourc":
+			self.del_pos_txt.set_text("tth: ")
+			self.eta_pos_txt.set_text("th: ")
+			self.phi_pos_txt.set_text("phi: ")
+			self.kphi_pos_txt.set_text("kphi: ")
+			self.chi_pos_txt.set_text("chi: ")
+			self.nu_pos_txt.set_text("nu: ")
+			self.mu_pos_txt.set_text("mu: ")
+			
+			self.del_pos.set_text("%.2f"%self.delta)
+			self.eta_pos.set_text("%.2f"%self.eta)
+			self.phi_pos.set_text("%.2f"%self.phi)
+			self.kphi_pos.set_text("%.2f"%self.kphi)
+			self.chi_pos.set_text("%.2f"%self.chi)
+			self.nu_pos.set_text("%.2f"%self.nu)
+			self.mu_pos.set_text("%.2f"%self.mu)
+			
+		elif self.manip == "gisaxs":
+			moteurs = self.motor.keys()
+			self.del_pos_txt.set_text(moteurs[0])
+			self.eta_pos_txt.set_text(moteurs[1])
+			self.phi_pos_txt.set_text(moteurs[2])
+			self.kphi_pos_txt.set_text(moteurs[3])
+			self.chi_pos_txt.set_text(moteurs[4])
+			self.nu_pos_txt.set_text(moteurs[5])
+			self.mu_pos_txt.set_text(moteurs[6])
+			
+			self.del_pos.set_text("%.2f"%self.motor[moteurs[0]])
+			self.eta_pos.set_text("%.2f"%self.motor[moteurs[1]])
+			self.phi_pos.set_text("%.2f"%self.motor[moteurs[2]])
+			self.kphi_pos.set_text("%.2f"%self.motor[moteurs[3]])
+			self.chi_pos.set_text("%.2f"%self.motor[moteurs[4]])
+			self.nu_pos.set_text("%.2f"%self.motor[moteurs[5]])
+			self.mu_pos.set_text("%.2f"%self.motor[moteurs[6]])
+				
 		self.time_pos_txt.set_text("Seconds: ")
 		self.time_pos.set_text("%d"%self.count_time)
-		if hasattr(self,'det_outer'):
-			self.nu_pos_txt.set_text(_DETECTOR_MOTORS[0])
-			self.nu_pos.set_text("%.2f"%self.det_outer)
-		self.del_pos_txt.set_text(_DETECTOR_MOTORS[-1])
-		self.eta_pos_txt.set_text(_SAMPLE_ROTATION_MOTORS[0])
-		self.chi_pos_txt.set_text(_SAMPLE_ROTATION_MOTORS[1])
-		self.phi_pos_txt.set_text(_SAMPLE_ROTATION_MOTORS[2])
-
-		self.del_pos.set_text("%.2f"%self.det_inner)
-		self.eta_pos.set_text("%.2f"%self.th)
-		self.chi_pos.set_text("%.2f"%self.chi)
-		self.phi_pos.set_text("%.2f"%self.phi)
 		gc.collect() # Clear unused variables
 		#self.data = self.fabioIMG.data
 		self.plot_data()
-		spliter = _IMG_NUMBER_SEPARATOR
-		num = self.edf_choosen.split(spliter)[-1]
+		if "-" in self.edf_choosen:
+			spliter = "-"
+		else:
+			spliter = "_"
+		num = self.edf_choosen.split(spliter)[1]
 		num = num.split(".")[0]
 		try:
 			self.SELECTED_IMG_NUM = int(num)
@@ -1586,18 +1583,18 @@ class MyMainWindow(gtk.Window):
 		return
 
 	def load_specFile(self,widget):
-		dialog = gtk.FileChooserDialog("Select spec file",None,gtk.FILE_CHOOSER_ACTION_OPEN,(gtk.STOCK_CANCEL,gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
+		dialog = Gtk.FileChooserDialog("Select spec file",None,Gtk.FileChooserAction.OPEN,(Gtk.STOCK_CANCEL,Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
 		dialog.set_current_folder(self.current_folder)
 		response = dialog.run()
-		if response == gtk.RESPONSE_OK:
+		if response == Gtk.ResponseType.OK:
 			file_choosen = dialog.get_filename().decode('utf8')
 			self.scan_slider_path.set_text(file_choosen)
 			self.SPEC_FILE = file_choosen
 		else:
 			pass
 		dialog.destroy()
-		while gtk.events_pending():
-			gtk.main_iteration()
+		while Gtk.events_pending():
+			Gtk.main_iteration()
 		if self.detector_type=="D1":
 			self.SPEC_DATA = Read_Spec_D1(self.SPEC_FILE)
 		else:
@@ -1605,13 +1602,13 @@ class MyMainWindow(gtk.Window):
 		self.update_spec_data()
 		
 		return
-		
+	
 	def load_UBfile(self,widget):
 		if self.geometry_browse_UB.get_active():
-			dialog = gtk.FileChooserDialog("Select a UB file",None,gtk.FILE_CHOOSER_ACTION_OPEN,(gtk.STOCK_CANCEL,gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
+			dialog = Gtk.FileChooserDialog("Select a UB file",None,Gtk.FileChooserAction.OPEN,(Gtk.STOCK_CANCEL,Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
 			dialog.set_current_folder(self.current_folder)
 			response = dialog.run()
-			if response == gtk.RESPONSE_OK:
+			if response == Gtk.ResponseType.OK:
 				file_choosen = dialog.get_filename().decode('utf8')
 				self.UB_FILE = file_choosen
 			else:
@@ -1619,8 +1616,6 @@ class MyMainWindow(gtk.Window):
 			dialog.destroy()
 			self.UB_MATRIX = N.loadtxt(self.UB_FILE)
 			self.UB_MATRIX_LOAD=True
-			self.qconv.UB=self.UB_MATRIX
-			#self.experiment = xrayutilities.HXRD([1,0,0],[0,0,1], en=self.energy, qconv=self.qconv)
 			self.geometry_browse_UB.set_label("UB imported")
 			print "UB matrix file: ",self.UB_FILE
 			print "UB matrix: \n",self.UB_MATRIX
@@ -1641,11 +1636,7 @@ class MyMainWindow(gtk.Window):
 				self.IMG_COL  = _SPEC_IMG_COL[i]
 				break
 		if not img_col_found:
-			img_col = ''
-			for imc in _SPEC_IMG_COL:
-				img_col+='%s, '%imc
-			msg = "Spec file does not containt the image field. The current image number counter is %s. Please check the instrument configuration again."%img_col
-			self.popup_info("error",msg)	
+			self.popup_info("error","Spec file does not containt the image field. If image coloumn is not 'img' or 'xpadNum' please add this name in the _SPEC_IMG_COL variable (line N# 63).")	
 			return
 		else:
 			first_scan_num = self.SPEC_SCAN_LIST[0].nr
@@ -1712,7 +1703,7 @@ class MyMainWindow(gtk.Window):
 		actual_scan_num = self.scan_slider_spinButton.get_value()
 		actual_scan_num = int(actual_scan_num)
 		self.check_skipped_motors()#To get the list of skipped motors
-		print "Current scan number: ",actual_scan_num
+		print "Actual scan number: ",actual_scan_num
 		#print "Skipped scans: ",self.SPEC_SKIPPED_MOTORS
 		#print "First scan: %d, Last scan: %d"%(self.SPEC_SCAN_LIST[0].nr, self.SPEC_SCAN_LIST[-1].nr)
 		for i in range(len(self.SPEC_SCAN_LIST)):
@@ -1734,24 +1725,18 @@ class MyMainWindow(gtk.Window):
 		actual_img_num  = self.SELECTED_IMG_NUM
 		#actual_img_num = self.scan_slider_imgSlider.get_value()
 		#actual_img_num = int(actual_img_num)
-		print "Current edf folder: ",self.edf_folder
-		print "Current edf prefix: ",self.current_prefix
-		self.current_img_list=self.store_img[self.edf_folder][self.current_prefix]
-		
 		if (actual_img_num == None) or (actual_img_num not in self.SPEC_ACTUAL_SCAN_IMG):
 			actual_img_num = self.SPEC_ACTUAL_SCAN_IMG[0]
-		"""
+		
 		for k in self.store.keys():
-			if actual_img_num in self.current_img_list:
+			if actual_img_num in self.store_img[k]:
 				self.edf_folder = k
 				break
 			else:
 				continue
-		"""
 		#print "EDF folder: ",self.edf_folder
-		#while gtk.events_pending():
-			#gtk.main_iteration()
-		
+		#while Gtk.events_pending():
+			#Gtk.main_iteration()
 		if self.SPEC_ACTUAL_SCAN_IMG[0] == self.SPEC_ACTUAL_SCAN_IMG[-1]:
 			self.scan_slider_imgSlider.set_range(self.SPEC_ACTUAL_SCAN_IMG[0], self.SPEC_ACTUAL_SCAN_IMG[-1]+1)
 		else:
@@ -1763,16 +1748,15 @@ class MyMainWindow(gtk.Window):
 		self.SPEC_ACTUAL_SCAN_DATA = []
 		self.SPEC_ACTUAL_SCAN_HEADER=[]
 		#try:
-		self.SPEC_ACTUAL_SCAN_IMG_NAMES = select_files_from_table(self.TABLE_STORE[self.edf_folder], self.current_prefix, self.SPEC_ACTUAL_SCAN_IMG.min(), self.SPEC_ACTUAL_SCAN_IMG.max())
+		self.SPEC_ACTUAL_SCAN_IMG_NAMES = select_files_from_list(self.store[self.edf_folder], self.SPEC_ACTUAL_SCAN_IMG[0], self.SPEC_ACTUAL_SCAN_IMG[-1])
 		
 		img_list = self.SPEC_ACTUAL_SCAN_IMG_NAMES
 		#print "Actual images: ",img_list
-		#"""
 		print "Loading data for this scan %d ..."%self.SPEC_ACTUAL_SCAN.nr
 		
-		#Getting data by multithreading
+		"""" Getting data by multithreading """
 		threads = []
-		for i in xrange(len(img_list)):
+		for i in range(len(img_list)):
 			t = get_scan_data_thread(i,self.edf_folder, img_list[i])
 			threads.append(t)
 			t.start()
@@ -1782,7 +1766,7 @@ class MyMainWindow(gtk.Window):
 			output.append(t.Data)
 		while len(threads)>0:
 			threads.pop()
-		gobject.timeout_add(100, self._callback)
+		GObject.timeout_add(200, self._callback)
 		output.sort()
 		self.SPEC_ACTUAL_SCAN_DATA   = [o[1] for o in output]
 		self.SPEC_ACTUAL_SCAN_HEADER = [o[2] for o in output]
@@ -1797,7 +1781,7 @@ class MyMainWindow(gtk.Window):
 		#print "Motor values - size: ",self.SPEC_SCAN_MOTOR_DATA.shape
 		#print "plot_scan"
 		self.plot_scan()
-		#"""
+		
 		if not self.IMG_INIT:
 			self.init_image()
 		gc.collect()
@@ -1898,8 +1882,6 @@ class MyMainWindow(gtk.Window):
 			#print "Image number: ",img_num
 				
 			img_index = N.where(self.SPEC_ACTUAL_SCAN_IMG == img_num)
-			
-			#img_index = N.where(self.current_img_list == img_num)
 			img_index = img_index[0][0]
 			self.data = self.SPEC_ACTUAL_SCAN_DATA[img_index]
 			
@@ -1956,19 +1938,10 @@ class MyMainWindow(gtk.Window):
 		return
 		
 	def plot_3D_scan(self,w):
-		import matplotlib.pyplot as plt
 		""" popup a mayavi window to visualize the 3D data """
 		gc.collect()
-		#print "Current edf folder: ",self.edf_folder
-		#print "Current scan data len: ",len(self.SPEC_ACTUAL_SCAN_DATA)
-		if self.use_spec_UB.get_active():
-			self.UB_MATRIX = self.get_UB_from_spec(self.SPEC_ACTUAL_SCAN)
-			self.qconv.UB = self.UB_MATRIX
-			N.savetxt("UB_scan_%d.dat"%self.SPEC_ACTUAL_SCAN.nr, self.UB_MATRIX)
-		#self.what_is_this_manip()
-		#print "Manip ",self.manip
-		B = UB2B(self.UB_MATRIX)
-		U = self.UB_MATRIX.dot(np.linalg.inv(B))
+		self.what_is_this_manip()
+		print "Manip ",self.manip
 		DATA = []
 		scan_motors = {}
 		cch1 = self.direct_beam[1]
@@ -1979,100 +1952,143 @@ class MyMainWindow(gtk.Window):
 		# reduce data: number of pixels to average in each detector direction
 		default_nav = [4,4]
 		default_roi = [0,Nch1, 0,Nch2]  # region of interest on the detector
-		contour_level = 50
-		if self.detector_type == "S70" or "MAXIPIX" in _DETECTOR_NAME.upper():
-			contour_level = 50
+		contour_level = 20
+		if self.detector_type == "S70":
+			contour_level = 30
 			default_nav = [1,1]
 		if self.detector_space_btn.get_active() and self.ROI_ON and self.ROI_DRAWN:
 			r = sorted([int(self.ROI_y0), int(self.ROI_y1)])
 			c = sorted([int(self.ROI_x0), int(self.ROI_x1)])
 			default_roi = [r[0],r[1],c[0],c[1]]
 			
-		#default_roi = np.asarray(default_roi)
-		#default_nav = np.asarray(default_nav)	
-		has_det_rot_out = False
-		det_rot_in = _DETECTOR_MOTORS[-1]
-		if _DETECTOR_ROTATIONS ==2:
-			det_rot_out = _DETECTOR_MOTORS[0]
-			has_det_rot_out = True
-		sam_rot1 = _SAMPLE_ROTATION_MOTORS[0]
-		sam_rot2 = _SAMPLE_ROTATION_MOTORS[1]
-		sam_rot3 = _SAMPLE_ROTATION_MOTORS[2]
-		scan_motors[det_rot_in] = []
-		if has_det_rot_out:
-			scan_motors[det_rot_out] = []
-		scan_motors[sam_rot1]     = []
-		scan_motors[sam_rot2]     = []
-		scan_motors[sam_rot3]     = []
-
-		print "samp_rot_1, 2, 3, tth:"
-		print sam_rot1, sam_rot2, sam_rot3, det_rot_in
-		print "nbr of images: ",len(self.SPEC_ACTUAL_SCAN_DATA)
+		if self.manip == "kappapsic":
+			th_motor = 'eta'
+			tth_motor= 'del'
+		elif self.manip == 'fourc':
+			th_motor = 'th'
+			tth_motor= 'tth'
+		scan_motors[tth_motor] = []
+		scan_motors[th_motor]  = []
+		scan_motors['chi']     = []
+		scan_motors['phi']     = []
+		scan_motors['nu']      = []
+		if self.detector_type != "D1":
+			for i in range(len(self.SPEC_ACTUAL_SCAN_DATA)):
+				# print "Loading image: ",self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]
+				motor=get_motors(self.SPEC_ACTUAL_SCAN_HEADER[i])			
+				data = self.SPEC_ACTUAL_SCAN_DATA[i]
+				if data.size%9600 == 0:
+					data = correct_geometry(data, detector_type=self.detector_type)
+				if self.detector_type == "S70":
+					data = N.flipud(data)
+				
+				scan_motors[th_motor].append(motor[th_motor])
+				scan_motors['chi'].append(motor['chi'])
+				scan_motors['phi'].append(motor['phi'])
+				scan_motors['nu'].append(motor['nu'])
+				scan_motors[tth_motor].append(motor[tth_motor])
+				data = xrayutilities.blockAverage2D(data, default_nav[0], default_nav[1], roi=default_roi)
+				DATA.append(data)
+		else:
+			#if the detector is D1, old format of image and spec file is taken into account
+			scan_motor = self.SPEC_SCAN_MOTOR_NAME
+			scan_motor_values = self.SPEC_ACTUAL_SCAN.motors
+			_delta = scan_motor_values['del']
+			_eta   = scan_motor_values['eta']
+			_chi   = scan_motor_values['chi']
+			_phi   = scan_motor_values['phi']
+			_nu    = scan_motor_values['nu']
+			init_motors_pos = [_delta, _eta, _chi, _phi, _nu]
+			
+			mot_del  = re.compile(r'DEL')
+			mot_eta  = re.compile(r'ETA')
+			mot_chi  = re.compile(r'CHI')
+			mot_phi  = re.compile(r'PHI')
+			mot_nu  = re.compile(r'NU')
+			mot_list = [mot_del,mot_eta,mot_chi,mot_phi,mot_nu]
+			real_mot_list = [tth_motor,th_motor,'chi','phi','nu']
+			for i in range(len(mot_list)):
+				if mot_list[i].findall(scan_motor.upper())!=[]:
+					scan_motors[real_mot_list[i]] = self.SPEC_SCAN_MOTOR_DATA
+					real_mot_list.pop(i)#Remove the scan motor from the motor list
+					init_motors_pos.pop(i)
+					break
+				else:
+					continue
+			
+			for i in range(len(real_mot_list)):
+				scan_motors[real_mot_list[i]] = N.ones(shape=self.SPEC_SCAN_MOTOR_DATA.shape)*init_motors_pos[i]
+			
+			bad_images = []#For D1 detector, sometime the recorded images suffer from cosmic rays which pruduce bad images
+			for i in range(len(self.SPEC_ACTUAL_SCAN_DATA)):
+				# print "Loading image: ",self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]
+				if os.path.getsize(join(self.edf_folder, self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]))<1.5e6:
+					bad_images.append(i)
+					print "BAD IMAGE ",self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]
+					continue
+				else:
+					data = self.SPEC_ACTUAL_SCAN_DATA[i]
+					data = xrayutilities.blockAverage2D(data, default_nav[0], default_nav[1], roi=default_roi)
+					DATA.append(data)
+				
+				
 		print "Data processing ..."
-	
-		for i in xrange(len(self.SPEC_ACTUAL_SCAN_DATA)):
-			# print "Loading image: ",self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]
-			motor=get_motors(self.SPEC_ACTUAL_SCAN_HEADER[i])			
-			data = self.SPEC_ACTUAL_SCAN_DATA[i]
-			if self.DARK_CORRECTION:
-				data = data - self.DARK_DATA
-			scan_motors[det_rot_in].append(motor[det_rot_in])
-			if has_det_rot_out:
-				scan_motors[det_rot_out].append(motor[det_rot_out])
-			scan_motors[sam_rot1].append(motor[sam_rot1])
-			scan_motors[sam_rot2].append(motor[sam_rot2])
-			scan_motors[sam_rot3].append(motor[sam_rot3])
-			data = xrayutilities.blockAverage2D(data, default_nav[0], default_nav[1], roi=default_roi)
-			DATA.append(data)		
-		
-		
 		try:
-			tth   = N.asarray(scan_motors[det_rot_in])
-			th   = N.asarray(scan_motors[sam_rot1])
-			chi  = N.asarray(scan_motors[sam_rot2])
-			phi  = N.asarray(scan_motors[sam_rot3])
-			DATA = N.asarray(DATA)
-			
-			this_experiment = xrayutilities.HXRD([1,0,0],[0,0,1], en=self.energy, qconv=self.qconv)
-			this_experiment.Ang2Q.init_area(_DETECTOR_PIXEL_DIRECTIONS[0], _DETECTOR_PIXEL_DIRECTIONS[1], cch1=cch1, cch2=cch2, Nch1=Nch1,Nch2=Nch2, 
+			th   = N.asarray(scan_motors[th_motor])
+			tth  = N.asarray(scan_motors[tth_motor])
+			chi  = N.asarray(scan_motors['chi'])
+			phi  = N.asarray(scan_motors['phi'])
+			nu   = N.asarray(scan_motors['nu'])
+			if self.detector_type=="D1":
+				phi = N.delete(phi,bad_images)
+				tth = N.delete(tth, bad_images)
+				chi = 90-N.delete(chi,bad_images)
+				th  = N.delete(th, bad_images)
+				nu  = N.delete(nu,bad_images)
+			if self.manip == "gisaxs" or self.manip == "saxsext" or self.experiment_type=="GISAXS":
+				tth = tth * 0.
+				nu  = nu * 0.
+			this_experiment = self.experiment
+			this_experiment.Ang2Q.init_area('z+','y-', cch1=cch1, cch2=cch2, Nch1=Nch1,Nch2=Nch2, 
 									  pwidth1=_PIXEL_SIZE,pwidth2=_PIXEL_SIZE, distance=self.distance, 
-									 # tiltazimuth=self.xu_tiltazimuth, tilt=self.xu_tilt, detrot=self.xu_detrot, outerangle_offset=self.xu_outerangle_offset,
 									  Nav=default_nav, roi=default_roi)
-			
-			"""
-			if has_det_rot_out:
-				h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area')
+			if self.UB_MATRIX_LOAD:
+				h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area', U=self.UB_MATRIX)
 			else:
-				h,k,l=this_experiment.Ang2HKL(th,chi,phi,tth, dettype='area')
-			"""
-			if self.has_substrate:
-				h,k,l=this_experiment.Ang2HKL(th,chi,phi,tth, dettype='area', mat=self.substrate)
-			else:
-				#print "Should be here"			
-				h,k,l=this_experiment.Ang2HKL(th,chi,phi, tth, dettype='area', U=U, B=B)
-			
-			nx = 101
-			ny = 101
-			nz = 101
+				if self.has_substrate:
+					h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area', mat=self.substrate)
+				else:
+					h,k,l=this_experiment.Ang2HKL(th,chi,phi,nu,tth, dettype='area')
+			nx = 50
+			ny = 50
+			nz = 50
 			print "Initializing data grid..."
 			gridder = xrayutilities.Gridder3D(nx,ny,nz)
 			print "Data gridding on a regular map..."
 			gridder(h,k,l,DATA)
-			
-			MAP_data  = gridder.data.T
-			maxint    = N.log10(MAP_data.max())
-			MAP_data  = xrayutilities.maplog(MAP_data,maxint*0.5,0)
+			h,k,l = N.mgrid[gridder.xaxis.min():gridder.xaxis.max():1j*nx,
+								gridder.yaxis.min():gridder.yaxis.max():1j*ny,
+								gridder.zaxis.min():gridder.zaxis.max():1j*nz]
+			MAP_data  = gridder.data
+			maxint= N.log10(MAP_data.max())
+			MAP_data  = xrayutilities.maplog(MAP_data,maxint*0.5,1)
 			print "Plotting 3D image ..."
-			x,y,z = gridder.xaxis, gridder.yaxis, gridder.zaxis
-			
-			PopUpRSM(MAP_data, gridder.xaxis, gridder.yaxis, gridder.zaxis)
+			from mayavi import mlab
+			mlab.figure()
+			src  = mlab.pipeline.scalar_field(MAP_data)
+			src2 = mlab.pipeline.set_active_attribute(src,point_scalars='scalar')
+			mlab.pipeline.contour_surface(src2,contours=contour_level,opacity=0.5)
+			mlab.outline()
+			mlab.axes(nb_labels=5, ranges=(h.min(),h.max(),k.min(),k.max(),l.min(),l.max()), xlabel='H', ylabel='K', zlabel='L')
+			mlab.colorbar(title="log(intensity)", orientation="vertical")
+			mlab.show()
+			mlab.close(all=True)
 		except:
 			exc_type, exc_value, exc_traceback = sys.exc_info()
 			self.popup_info("warning", "ERROR: %s"%str(exc_value))
-		
 		gc.collect()
 		return
-
+		
 	
 	def get_UB_from_spec(self,actual_scan):
 		header = actual_scan.header
@@ -2172,11 +2188,11 @@ class MyMainWindow(gtk.Window):
 			self.sld_vmax.set_value(self.vmax)
 			self.sld_vmin.set_value(self.vmin)
 			if self.linear_scale_btn.get_active():
-				self.vmin_spin_btn.set_adjustment(gtk.Adjustment(self.vmin, 0, self.vmax_range, 0.1, 1.0, 0))
-				self.vmax_spin_btn.set_adjustment(gtk.Adjustment(self.vmax, 0, self.vmax_range, 0.1, 1.0, 0))
+				self.vmin_spin_btn.set_adjustment(Gtk.Adjustment(self.vmin, 0, self.vmax_range, 0.1, 1.0, 0))
+				self.vmax_spin_btn.set_adjustment(Gtk.Adjustment(self.vmax, 0, self.vmax_range, 0.1, 1.0, 0))
 			else:
-				self.vmin_spin_btn.set_adjustment(gtk.Adjustment(self.vmin, 0, self.vmax_range, 10, 100, 0))
-				self.vmax_spin_btn.set_adjustment(gtk.Adjustment(self.vmax, 0, self.vmax_range, 10, 100, 0))
+				self.vmin_spin_btn.set_adjustment(Gtk.Adjustment(self.vmin, 0, self.vmax_range, 10, 100, 0))
+				self.vmax_spin_btn.set_adjustment(Gtk.Adjustment(self.vmax, 0, self.vmax_range, 10, 100, 0))
 			#self.vmax_spin_btn.update()
 			
 			#self.ax.relim()
@@ -2194,8 +2210,8 @@ class MyMainWindow(gtk.Window):
 			self.polar_img.set_clim(self.vmin, self.vmax)
 			self.sld_vmax.set_value(self.vmax)
 			self.sld_vmin.set_value(self.vmin)
-			self.vmin_spin_btn.set_adjustment(gtk.Adjustment(self.vmin, 0, self.vmax_range, 0.5, 10.0, 0))
-			self.vmax_spin_btn.set_adjustment(gtk.Adjustment(self.vmax, 0, self.vmax_range, 0.5, 10.0, 0))
+			self.vmin_spin_btn.set_adjustment(Gtk.Adjustment(self.vmin, 0, self.vmax_range, 0.5, 10.0, 0))
+			self.vmax_spin_btn.set_adjustment(Gtk.Adjustment(self.vmax, 0, self.vmax_range, 0.5, 10.0, 0))
 			#self.vmax_spin_btn.update()
 			#self.polar_ax.relim()
 			self.plot_PF()
@@ -2303,7 +2319,7 @@ class MyMainWindow(gtk.Window):
 		"""For the Zoom button"""
 		if self.zoomtb.get_active():
 			self.zoom = True
-			self.canvas.window.set_cursor(gtk.gdk.Cursor(gtk.gdk.CROSS))
+			self.canvas.window.set_cursor(Gdk.Cursor.new(Gdk.CROSS))
 			self.cursor.visible = False
 		else:
 			self.zoom = False
@@ -2384,100 +2400,63 @@ class MyMainWindow(gtk.Window):
 			self.cb2.ax.set_visible(False)
 
 		self.canvas.draw()
-
-	#"""
+	
 	def get_list_dir(self,this_dir):
-		''' Get the list of directories inside this_dir'''
+		""" Get the list of directories inside this_dir"""
 		self.MODEL.clear()
 		main_dir = this_dir
-		list_dir = glob.glob("%s/*/"%main_dir)
-		no_of_dirs = len(list_dir)
-		if no_of_dirs>0:
-			for i in xrange(no_of_dirs):
-				path = os.path.dirname(list_dir[i])
-				path = path.decode('utf8')
-				parent_item=os.path.basename(path)
-				self._thread_scanning(path,parent_item)
-				
-	#"""
-	def add_parent(self,parent, name):
-		'''parent: a model parent, name: text '''
-		return self.MODEL.append(parent, name)
-
-	def add_child(self, parent_item, child_name):
-		''' parent_item: parent returned by self.add_parent'''
-		self.MODEL.append(parent_item, child_name)
-			
-	def _thread_scanning(self,path, parent_item):
-		ms         = glob.glob("%s/*%s"%(path,_IMG_FORMAT))
-		main_store = [os.path.basename(x) for x in ms]
-		main_store = list_to_table(main_store,sort_col=0)
-		len_mainstore = len(main_store)
-		if len_mainstore>0:
-			threads=[]
-			parent = self.MODEL.append(None,[parent_item])
-			self.TABLE_STORE[str(path)] = main_store
-			self.store[str(path)] = get_column_from_table(main_store,0)
-			for pt in xrange(len_mainstore):
-				child = main_store[pt][0]
-				t = threading.Thread(target=self.thread_applying_model,args=(parent,child,))
-				threads.append(t)
-				t.start()
-			for t in threads:
-				t.join()
-			while len(threads)>0:
-				threads.pop()
-			del threads
+		list_dir = listdir(main_dir)
+		no_of_threads = len(list_dir)
+		for i in range(no_of_threads):
+			t = threading.Thread(target=self._thread_scanning,args=(main_dir,list_dir[i].decode('utf8'),))
+			self.threads.append(t)
+			t.start()
+			# self._thread_scanning(main_dir,list_dir[i].decode('utf8'))	
+	def _thread_scanning(self,main_d,list_d):
+		path = os.sep.join((main_d, list_d))  # Made use of os's sep instead...
+		path = path.decode('utf8')
+		if os.path.isdir(path):
+			main_store= [i for i in listdir(path) if isfile(join(path,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
+			main_store = list_to_table(main_store,sort_col=2)
+			if len(main_store)>0:
+				parent = self.MODEL.append(None,[list_d])
+				self.TABLE_STORE[str(path)] = main_store
+				self.store[str(path)] = get_column_from_table(main_store,0)
+				for f in main_store:
+					self.MODEL.append(parent,[f[0]])	
 	
-	def thread_applying_model(self,parent, child):
-		self.MODEL.append(parent, [child])
-
 	def choose_folder(self,w):
-		dialog = gtk.FileChooserDialog(title="Select an EDF folder",action=gtk.FILE_CHOOSER_ACTION_SELECT_FOLDER, buttons = (gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
+		dialog = Gtk.FileChooserDialog(title="Select an EDF folder",action=Gtk.FileChooserAction.SELECT_FOLDER, buttons = (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
 		dialog.set_current_folder(self.current_folder)
 		response=dialog.run()
-	
-		if response==gtk.RESPONSE_OK:
+
+		if response==Gtk.ResponseType.OK:
 			folder=dialog.get_filename()
 			folder=folder.decode('utf8')
-			folder_basename = os.path.basename(folder)
-			print "Loading data in %s. Please wait ..."%folder
-			ms         = glob.glob("%s/*%s"%(folder,_IMG_FORMAT))
-			main_store = [os.path.basename(x) for x in ms]
+			folder_basename = os.path.basename(os.path.dirname(folder))
+			#print folder
+			main_store= [i for i in listdir(folder) if isfile(join(folder,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
 			self.store = {}       #{'folder_1':[list name], 'folder_2': [list name], ...}
 			self.TABLE_STORE = {} #{'folder_1":[table: name-prefix-number], 'folder_2':[table:name-prefix-number],...}
 			
 			self.current_folder = folder
-			#print "get list dir"
+			#print self.store
 			self.threads = []
 			self.get_list_dir(self.current_folder)
 			for t in self.threads:
 				t.join()
 			while len(self.threads)>0:
 				self.threads.pop()
-			#gobject.timeout_add(100, self._callback)
-			#print "Done listdir"
-			
-			len_mainstore = len(main_store)
-			if len_mainstore>0:
-				main_store = list_to_table(main_store,sort_col=0)
+			GObject.timeout_add(200, self._callback)
+			if len(main_store)>0:
+				#main_store = sorted(main_store)
+				main_store = list_to_table(main_store,sort_col=2)
 				self.TABLE_STORE[str(folder)] = main_store
 				self.store[str(folder)] = get_column_from_table(main_store,0)
-				self.threads=[]
-				for pt in xrange(len_mainstore):
-					parent = None
-					child  = main_store[pt][0]
-					t = threading.Thread(target=self.thread_applying_model,args=(parent,child,))
-					self.threads.append(t)
-					t.start()
-				for t in self.threads:
-					t.join()
-				while len(self.threads)>0:
-					self.threads.pop()
-				#gobject.timeout_add(100, self._callback)
+				for i in main_store:
+					self.MODEL.append(None,[i[0]])
 			else:
 				pass
-			print "Done."
 			self.TVcolumn.set_title(folder_basename)
 			self.DATA_IS_LOADED = True
 			
@@ -2486,15 +2465,16 @@ class MyMainWindow(gtk.Window):
 		dialog.destroy()
 		self.threads=[]
 		if self.DATA_IS_LOADED:
-			self.store_img = {}#store_img = {'folder':{'prefix': [list img_num], 'prefix2':[list inum],...} }
+			self.store_img = {}
 			for k in self.store.keys():
-				self.store_img[k] = group_image_from_table(self.TABLE_STORE[k])
+				#self.store_img[k] = get_img_list(self.store[k])
+				self.store_img[k] = get_column_from_table(self.TABLE_STORE[k],2)
 
 	def folder_update(self,widget):
 		folder = self.current_folder
 		if folder is not os.getcwd():
-			main_store= [i for i in listdir(folder) if isfile(join(folder,i)) and i.endswith(_IMG_FORMAT) or i.endswith(_IMG_FORMAT+".gz")]
-			main_store = list_to_table(main_store,sort_col=0)
+			main_store= [i for i in listdir(folder) if isfile(join(folder,i)) and i.endswith(".edf") or i.endswith(".edf.gz")]
+			main_store = list_to_table(main_store,sort_col=2)
 			self.store={}
 			self.TABLE_STORE = {}
 			#self.list_store.clear()
@@ -2506,10 +2486,10 @@ class MyMainWindow(gtk.Window):
 				t.join()
 			while len(self.threads)>0:
 				self.threads.pop()
-			#gobject.timeout_add(100, self._callback)
+			GObject.timeout_add(200, self._callback)
 			self.store_img = {}
 			for k in self.store.keys():
-				self.store_img[k] = group_image_from_table(self.TABLE_STORE[k])
+				self.store_img[k] = get_column_from_table(self.TABLE_STORE[k],2)
 			
 			for i in main_store:
 				self.MODEL.append(None,[i[0]])
@@ -2522,12 +2502,12 @@ class MyMainWindow(gtk.Window):
 		#return 1
 
 	def save_image(self,widget):
-		dialog = gtk.FileChooserDialog(title="Save image", action=gtk.FILE_CHOOSER_ACTION_SAVE, buttons = (gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL, gtk.STOCK_SAVE, gtk.RESPONSE_OK))
+		dialog = Gtk.FileChooserDialog(title="Save image", action=Gtk.FileChooserAction.SAVE, buttons = (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_SAVE, Gtk.ResponseType.OK))
 		filename = self.edf_choosen.split(".")[0] if self.edf_choosen != "" else ""
 		dialog.set_current_name(filename+".pdf")
 		#dialog.set_filename(filename)
 		dialog.set_current_folder(self.current_folder)
-		filtre = gtk.FileFilter()
+		filtre = Gtk.FileFilter()
 		filtre.set_name("images")
 		filtre.add_pattern("*.png")
 		filtre.add_pattern("*.jpg")
@@ -2535,13 +2515,13 @@ class MyMainWindow(gtk.Window):
 		filtre.add_pattern("*.ps")
 		filtre.add_pattern("*.eps")
 		dialog.add_filter(filtre)
-		filtre = gtk.FileFilter()
+		filtre = Gtk.FileFilter()
 		filtre.set_name("Other")
 		filtre.add_pattern("*")
 		dialog.add_filter(filtre)
 		response = dialog.run()
 
-		if response==gtk.RESPONSE_OK:
+		if response==Gtk.ResponseType.OK:
 			self.fig.savefig(dialog.get_filename().decode('utf8'))
 		dialog.destroy()
 
@@ -2584,15 +2564,12 @@ class MyMainWindow(gtk.Window):
 			self.popup_info('warning','Please calibrate the detector before checking this!')
 			self.tth_chi_space_btn.set_active(False)
 		elif self.calibrated==True and self.geometry_corrected==True:
-			
 			#self.show_chi_delta_btn.set_sensitive(False)
 			self.show_chi_delta_flag=self.show_chi_delta_btn.get_active()
 			self.check_azimuthal_integrator()
 			
 			self.azimuthalIntegration.setChiDiscAtZero()
-			
 			self.data,self.tth_pyFAI,self.chi_pyFAI = self.azimuthalIntegration.integrate2d(self.data,self.data.shape[0],self.data.shape[1],unit="2th_deg")
-			
 			self.chi_pyFAI = self.chi_pyFAI - 90
 			self.MAIN_EXTENT = (self.tth_pyFAI.min(), self.tth_pyFAI.max(), self.chi_pyFAI.min(), self.chi_pyFAI.max())
 			
@@ -2615,8 +2592,8 @@ class MyMainWindow(gtk.Window):
 			self.check_azimuthal_integrator()
 			distance = self.azimuthalIntegration.dist
 			#print "Distance: ",distance
-			cch1     = self.direct_beam[1]
-			cch2     = self.direct_beam[0]
+			cch1     = self.azimuthalIntegration.poni1/_PIXEL_SIZE
+			cch2     = self.azimuthalIntegration.poni2/_PIXEL_SIZE
 			detrot   = self.azimuthalIntegration.rot3
 			tiltazimuth=self.azimuthalIntegration.rot1
 			tilt     = self.azimuthalIntegration.rot2
@@ -2632,11 +2609,11 @@ class MyMainWindow(gtk.Window):
 				tilt   = N.degrees(tilt)*(-1)
 			else:
 				tilt   = 0
-			ETA = self.th
-			CHI = self.chi
+			ETA = self.eta
+			CHI = detrot
 			PHI = self.phi 
-			if hasattr(self,'det_outer'): NU  = self.det_outer
-			DEL = self.det_inner
+			NU  = tiltazimuth
+			DEL = tilt
 			
 			Nch1 = self.data.shape[0]
 			Nch2 = self.data.shape[1]
@@ -2645,29 +2622,20 @@ class MyMainWindow(gtk.Window):
 			# if self.detector_type != "S70":
 			dim1 = self.data.shape[0]/3
 			dim2 = self.data.shape[1]/3
-
-				
-			self.experiment.Ang2Q.init_area(_DETECTOR_PIXEL_DIRECTIONS[0], _DETECTOR_PIXEL_DIRECTIONS[1], cch1=cch1, cch2=cch2, Nch1=Nch1,Nch2=Nch2, pwidth1=_PIXEL_SIZE,pwidth2=_PIXEL_SIZE, distance=distance, detrot=detrot)
-			if hasattr(self,'det_outer'):
-				self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL,dettype='area')
-				self.QX,self.QY,self.QZ = self.experiment.Ang2Q.area(ETA,CHI,PHI,NU,DEL)
+			# else:
+				# dim1 = 400
+				# dim2 = 100
+			self.experiment.Ang2Q.init_area('z+','y-', cch1=cch1, cch2=cch2, Nch1=Nch1,Nch2=Nch2, pwidth1=_PIXEL_SIZE,pwidth2=_PIXEL_SIZE, distance=distance, detrot=detrot)
+			if self.UB_MATRIX_LOAD:
+				self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL,dettype='area', U = self.UB_MATRIX)
+				self.QX,self.QY,self.QZ = self.experiment.Ang2Q.area(ETA,CHI,PHI,NU,DEL, UB = self.UB_MATRIX)
 			else:
-				self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,DEL,dettype='area')
-				self.QX,self.QY,self.QZ = self.experiment.Ang2Q.area(ETA,CHI,PHI,DEL)
-			if self.has_substrate:
-				if hasattr(self,'det_outer'):
+				if self.has_substrate:
 					self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL, mat=self.substrate, dettype='area')
 					self.QX,self.QY,self.QZ = self.experiment.Ang2Q.area(ETA,CHI,PHI,NU,DEL)
 				else:
-					self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,DEL, mat=self.substrate, dettype='area')
-					self.QX,self.QY,self.QZ = self.experiment.Ang2Q.area(ETA,CHI,PHI,DEL)
-			else:
-				if hasattr(self,'det_outer'):
 					self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,NU,DEL, dettype='area')
 					self.QX,self.QY,self.QZ = self.experiment.Ang2Q.area(ETA,CHI,PHI,NU,DEL)
-				else:
-					self.H,self.K,self.L = self.experiment.Ang2HKL(ETA,CHI,PHI,DEL, dettype='area')
-					self.QX,self.QY,self.QZ = self.experiment.Ang2Q.area(ETA,CHI,PHI,DEL)
 			
 			self.QGridder = xrayutilities.Gridder2D(dim1, dim2)
 			if space=="HK":
@@ -2857,7 +2825,7 @@ class MyMainWindow(gtk.Window):
 				
 				
 			num = int(N.hypot(x[1]-x[0], y[1]-y[0])) #Number of points to be taken along the line
-			#print "Number of points selected: ",num
+			print "Number of points selected: ",num
 			xi, yi = N.linspace(x[0], x[1], num), N.linspace(y[0], y[1], num)
 			#self.profiles_data_X = self.profiles_data_Y = self.data[yi.astype(N.int), xi.astype(N.int)]
 			self.profiles_data_X = self.profiles_data_Y = ndimage.map_coordinates(self.data, N.vstack((yi,xi)))
@@ -3284,8 +3252,8 @@ class MyMainWindow(gtk.Window):
 			self.data_loading.set_fraction(fr)
 			self.data_loading.set_text("Data loading: "+str(int(fr*100))+"%")
 			self.data_loading.set_show_text(True)
-			while gtk.events_pending():
-				gtk.main_iteration()
+			while Gtk.events_pending():
+				Gtk.main_iteration()
 		output = []
 		for t in threads:
 			t.join()
@@ -3296,7 +3264,7 @@ class MyMainWindow(gtk.Window):
 			
 		while len(threads)>0:
 			threads.pop()
-		#gobject.timeout_add(200, self._callback)
+		GObject.timeout_add(200, self._callback)
 		output.sort()
 		intensity = [o[1] for o in output]
 		phi_table = [o[2] for o in output]
@@ -3409,10 +3377,10 @@ class MyMainWindow(gtk.Window):
 	#     For batch images correction 
 	#***************************************************************************
 	def select_source_folder(self, widget):
-		dialog = gtk.FileChooserDialog(title="Select a sources folder",action=gtk.FILE_CHOOSER_ACTION_SELECT_FOLDER, buttons = (gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
+		dialog = Gtk.FileChooserDialog(title="Select a sources folder",action=Gtk.FileChooserAction.SELECT_FOLDER, buttons = (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
 		dialog.set_current_folder(self.current_folder)
 		response = dialog.run()
-		if response==gtk.RESPONSE_OK:
+		if response==Gtk.ResponseType.OK:
 			folder=dialog.get_filename()
 			self.t1_src_path.set_text(folder)
 			self.current_folder = folder
@@ -3422,10 +3390,10 @@ class MyMainWindow(gtk.Window):
 		dialog.destroy()
 	
 	def select_destination_folder(self, widget):
-		dialog = gtk.FileChooserDialog(title="Select the destination folder",action=gtk.FILE_CHOOSER_ACTION_SELECT_FOLDER, buttons = (gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
+		dialog = Gtk.FileChooserDialog(title="Select the destination folder",action=Gtk.FileChooserAction.SELECT_FOLDER, buttons = (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
 		dialog.set_current_folder(self.current_folder)
 		response = dialog.run()
-		if response==gtk.RESPONSE_OK:
+		if response==Gtk.ResponseType.OK:
 			folder=dialog.get_filename()
 			self.t1_des_path.set_text(folder)
 			self.current_folder = folder
@@ -3435,10 +3403,10 @@ class MyMainWindow(gtk.Window):
 		dialog.destroy()
 		
 	def select_dark_image(self,w):
-		dialog = gtk.FileChooserDialog("Select a dark image",None,gtk.FILE_CHOOSER_ACTION_OPEN,(gtk.STOCK_CANCEL,gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
+		dialog = Gtk.FileChooserDialog("Select a dark image",None,Gtk.FileChooserAction.OPEN,(Gtk.STOCK_CANCEL,Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
 		dialog.set_current_folder(self.current_folder)
 		response = dialog.run()
-		if response == gtk.RESPONSE_OK:
+		if response == Gtk.ResponseType.OK:
 			file_choosen = dialog.get_filename()
 			self.t1_dark_img_path.set_text(file_choosen)
 			self.current_folder = os.path.dirname(file_choosen)
@@ -3474,10 +3442,10 @@ class MyMainWindow(gtk.Window):
 			self.d1_specfile_txt.hide()
 		
 	def select_normalisation_file(self,widget,path):
-		dialog = gtk.FileChooserDialog("Select spec file",None,gtk.FILE_CHOOSER_ACTION_OPEN,(gtk.STOCK_CANCEL,gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
+		dialog = Gtk.FileChooserDialog("Select spec file",None,Gtk.FileChooserAction.OPEN,(Gtk.STOCK_CANCEL,Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
 		dialog.set_current_folder(self.current_folder)
 		response = dialog.run()
-		if response == gtk.RESPONSE_OK:
+		if response == Gtk.ResponseType.OK:
 			file_choosen = dialog.get_filename()
 			path.set_text(file_choosen)
 			self.current_folder = os.path.dirname(file_choosen)
@@ -3703,8 +3671,8 @@ class MyMainWindow(gtk.Window):
 			self.progressbar.set_fraction(fraction/100.)
 			self.progressbar.set_text(str(fraction)+"%")
 			self.progressbar.set_show_text(True)
-			#while gtk.events_pending():
-				#gtk.main_iteration()
+			#while Gtk.events_pending():
+				#Gtk.main_iteration()
 			self.show_process_info.set_text(out_info)
 			yield True	
 		#except:
@@ -3714,16 +3682,16 @@ class MyMainWindow(gtk.Window):
 		
 	def batch_transform(self,widget):
 		task = self.processing()
-		gobject.idle_add(task.next)
+		GObject.idle_add(task.next)
 	def _callback(self):
 		if threading.active_count() == 1:  # If only one left, scanning is done
 			return False  # False make callback stop
-		#print threading.active_count()
+		print threading.active_count()
 		return True
 #***********************************************************************************************
 #                                       FINISHED
 #***********************************************************************************************
 if __name__ == "__main__":
-	gtk.threads_init()
+	GObject.threads_init()
 	m=MyMainWindow()
-	gtk.main()
+	Gtk.main()

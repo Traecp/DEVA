@@ -12,7 +12,6 @@ from sys import stdout
 import os
 import re, operator
 import gc
-import glob
 from os import listdir
 from os.path import isfile,join
 import tempfile
@@ -50,8 +49,8 @@ import pyFAI
 
 __author__="Tra NGUYEN THANH"
 __email__ = "thanhtra0104@gmail.com"
-__version__ = "3.2"
-__date__="10/05/2017"
+__version__ = "3.1"
+__date__="04/04/2017"
 
 #mpl.rcParams['font.size'] = 18.0
 mpl.rcParams['axes.labelsize'] = 'large'
@@ -81,7 +80,7 @@ _DETECTOR_ROTATION_DIRECTIONS = ['z+'] #positive rotation direction of the detec
 _DETECTOR_PIXEL_DIRECTIONS    = ['z+', 'y+'] #Positive directions of the pixels, first (vertical) and second (horizontal) direction
 # ********************************************************************************************************************************************
 _SAMPLE_ROTATIONS             = 3 #Number of sample rotations
-_SAMPLE_ROTATION_DIRECTIONS   = ['z+', 'x-', 'z+'] #Positive rotation directions of the sample motors, from outermost circle to innermost circle
+_SAMPLE_ROTATION_DIRECTIONS   = ['z+', 'x+', 'z+'] #Positive rotation directions of the sample motors, from outermost circle to innermost circle
 _SAMPLE_ROTATION_MOTORS       = ["th", "chi", "phi"] #Sample rotation motors, from outermost to innermost circle
 _XRAY_INCIDENT_BEAM_DIRECTION = 'x+' #Direction of incident X-ray beam. In general we choose this direction as x+
 
@@ -1510,16 +1509,13 @@ class MyMainWindow(gtk.Window):
 				self.pyFAI_rot2 = self.det_inner
 		
 	def on_changed_edf(self,widget,row,col):
-		""" Change EDF by double clicking on the file name 
-		model = TreeModel, row = path to the selected row, col = column of the selected item. The path has the format: (i,j,k) where i is the grand-parent row index, 
-		j is the parent index and k is the child index. Index starting from 0. Children of the top-level parent has the path (i,).
-		Remember: self.store_img = {'folder1': {prefix1: [img_list], prefix2: [img_list],...}, folder2: {}, ...}
-		"""
+		""" Change EDF by double clicking on the file name """
 		self.clear_notes()
 		self.init_image()
-		treeSelection = self.treeView.get_selection()
-		(model, item) = treeSelection.get_selected()
-		#print "selected edf: ",model[row][0]
+		model = widget.get_model()
+		#print "TRA CHOOSE: ",model
+		#print "ROW: ",row,len(row)
+		#print "MODEL[ROW]: ",model[row]
 		self.edf_choosen = model[row][0]
 		#Getting prefix:
 		tmp=self.edf_choosen.split("_")
@@ -1530,19 +1526,13 @@ class MyMainWindow(gtk.Window):
 		else:
 			prefix=tmp[0]+"_"
 		self.current_prefix = prefix		
-		if len(row)==1:
-			#print "selected parent: ",self.current_folder
-			self.edf_folder = self.current_folder
-		elif len(row)>1:
-			parent_item = model.iter_parent(item)
-			parent_path = model.get_path(parent_item)
-			#print "selected parent: ",model[parent_path][0]
-			parent_path_basename = model[parent_path][0]
-			self.edf_folder = join(self.current_folder, parent_path_basename)
-				
-		#print "edf_folder: ",self.edf_folder
+		self.edf_folder = self.current_folder
+		if len(row)==2:
+			#print "Selected Directory: ",model[row[0]][0]
+			self.edf_folder = join(self.current_folder,model[row[0]][0])
+			#print "edf_folder: ",self.edf_folder
 		self.edf = join(self.edf_folder,self.edf_choosen)
-		print "Selected image: ",self.edf
+		#self.edf_pos.set_text("EDF choosen:  %s"%self.edf_choosen)
 		try:
 			self.MAIN_TITLE.set_text(self.edf_choosen,fontsize=18)
 		except:
@@ -1712,7 +1702,7 @@ class MyMainWindow(gtk.Window):
 		actual_scan_num = self.scan_slider_spinButton.get_value()
 		actual_scan_num = int(actual_scan_num)
 		self.check_skipped_motors()#To get the list of skipped motors
-		print "Current scan number: ",actual_scan_num
+		print "Actual scan number: ",actual_scan_num
 		#print "Skipped scans: ",self.SPEC_SKIPPED_MOTORS
 		#print "First scan: %d, Last scan: %d"%(self.SPEC_SCAN_LIST[0].nr, self.SPEC_SCAN_LIST[-1].nr)
 		for i in range(len(self.SPEC_SCAN_LIST)):
@@ -1740,14 +1730,13 @@ class MyMainWindow(gtk.Window):
 		
 		if (actual_img_num == None) or (actual_img_num not in self.SPEC_ACTUAL_SCAN_IMG):
 			actual_img_num = self.SPEC_ACTUAL_SCAN_IMG[0]
-		"""
+		
 		for k in self.store.keys():
 			if actual_img_num in self.current_img_list:
 				self.edf_folder = k
 				break
 			else:
 				continue
-		"""
 		#print "EDF folder: ",self.edf_folder
 		#while gtk.events_pending():
 			#gtk.main_iteration()
@@ -1959,8 +1948,6 @@ class MyMainWindow(gtk.Window):
 		import matplotlib.pyplot as plt
 		""" popup a mayavi window to visualize the 3D data """
 		gc.collect()
-		#print "Current edf folder: ",self.edf_folder
-		#print "Current scan data len: ",len(self.SPEC_ACTUAL_SCAN_DATA)
 		if self.use_spec_UB.get_active():
 			self.UB_MATRIX = self.get_UB_from_spec(self.SPEC_ACTUAL_SCAN)
 			self.qconv.UB = self.UB_MATRIX
@@ -2014,8 +2001,6 @@ class MyMainWindow(gtk.Window):
 			# print "Loading image: ",self.SPEC_ACTUAL_SCAN_IMG_NAMES[i]
 			motor=get_motors(self.SPEC_ACTUAL_SCAN_HEADER[i])			
 			data = self.SPEC_ACTUAL_SCAN_DATA[i]
-			if self.DARK_CORRECTION:
-				data = data - self.DARK_DATA
 			scan_motors[det_rot_in].append(motor[det_rot_in])
 			if has_det_rot_out:
 				scan_motors[det_rot_out].append(motor[det_rot_out])
@@ -2385,21 +2370,23 @@ class MyMainWindow(gtk.Window):
 
 		self.canvas.draw()
 
-	#"""
+	
 	def get_list_dir(self,this_dir):
 		''' Get the list of directories inside this_dir'''
 		self.MODEL.clear()
 		main_dir = this_dir
-		list_dir = glob.glob("%s/*/"%main_dir)
-		no_of_dirs = len(list_dir)
-		if no_of_dirs>0:
-			for i in xrange(no_of_dirs):
-				path = os.path.dirname(list_dir[i])
-				path = path.decode('utf8')
-				parent_item=os.path.basename(path)
-				self._thread_scanning(path,parent_item)
-				
-	#"""
+		list_dir = listdir(main_dir)
+		no_of_threads = len(list_dir)
+		pool = Pool()
+		for i in range(no_of_threads):
+			#t = threading.Thread(target=self._thread_scanning,args=(main_dir,list_dir[i].decode('utf8'),))
+			#self.threads.append(t)
+			#t.start()
+			# self._thread_scanning(main_dir,list_dir[i].decode('utf8'))
+			pool.apply_async(self._thread_scanning,args=(main_dir,list_dir[i].decode('utf8'),))
+		pool.close()
+		pool.join()
+	
 	def add_parent(self,parent, name):
 		'''parent: a model parent, name: text '''
 		return self.MODEL.append(parent, name)
@@ -2407,77 +2394,68 @@ class MyMainWindow(gtk.Window):
 	def add_child(self, parent_item, child_name):
 		''' parent_item: parent returned by self.add_parent'''
 		self.MODEL.append(parent_item, child_name)
-			
-	def _thread_scanning(self,path, parent_item):
-		ms         = glob.glob("%s/*%s"%(path,_IMG_FORMAT))
-		main_store = [os.path.basename(x) for x in ms]
-		main_store = list_to_table(main_store,sort_col=0)
-		len_mainstore = len(main_store)
-		if len_mainstore>0:
-			threads=[]
-			parent = self.MODEL.append(None,[parent_item])
-			self.TABLE_STORE[str(path)] = main_store
-			self.store[str(path)] = get_column_from_table(main_store,0)
-			for pt in xrange(len_mainstore):
-				child = main_store[pt][0]
-				t = threading.Thread(target=self.thread_applying_model,args=(parent,child,))
-				threads.append(t)
-				t.start()
-			for t in threads:
-				t.join()
-			while len(threads)>0:
-				threads.pop()
-			del threads
+	"""
+	def get_list_dir(self, this_dir):
+		self.MODEL.clear()
+		for main_dir, subdir, files in os.walk(this_dir):
+			if main_dir == self.current_folder:
+				parent = self.add_parent(None, None)
+			else:
+				md = os.path.basename(main_dir)
+				parent = self.add_parent(parent,md)
+			main_store = [i for i in files if i.endswith(_IMG_FORMAT) or i.endswith(_IMG_FORMAT +".gz")]
+			main_store = list_to_table(main_store,sort_col=0)
+			if len(main_store)>0:
+				self.TABLE_STORE[str(main_dir)] = main_store
+				self.store[str(main_dir)] = get_column_from_table(main_store,0)
+				for f in main_store:
+					self.add_child(parent,[f[0]])			
+	"""		
+	def _thread_scanning(self,main_d,list_d):
+		path = os.sep.join((main_d, list_d))  # Made use of os's sep instead...
+		path = path.decode('utf8')
+		if os.path.isdir(path):
+			main_store= [i for i in listdir(path) if isfile(join(path,i)) and i.endswith(_IMG_FORMAT) or i.endswith(_IMG_FORMAT +".gz")]
+			main_store = list_to_table(main_store,sort_col=0)
+			if len(main_store)>0:
+				parent = self.MODEL.append(None,[list_d])
+				self.TABLE_STORE[str(path)] = main_store
+				self.store[str(path)] = get_column_from_table(main_store,0)
+				for f in main_store:
+					self.MODEL.append(parent,[f[0]])	
 	
-	def thread_applying_model(self,parent, child):
-		self.MODEL.append(parent, [child])
-
 	def choose_folder(self,w):
 		dialog = gtk.FileChooserDialog(title="Select an EDF folder",action=gtk.FILE_CHOOSER_ACTION_SELECT_FOLDER, buttons = (gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK))
 		dialog.set_current_folder(self.current_folder)
 		response=dialog.run()
-	
+
 		if response==gtk.RESPONSE_OK:
 			folder=dialog.get_filename()
 			folder=folder.decode('utf8')
-			folder_basename = os.path.basename(folder)
-			print "Loading data in %s. Please wait ..."%folder
-			ms         = glob.glob("%s/*%s"%(folder,_IMG_FORMAT))
-			main_store = [os.path.basename(x) for x in ms]
+			folder_basename = os.path.basename(os.path.dirname(folder))
+			#print folder
+			main_store= [i for i in listdir(folder) if isfile(join(folder,i)) and i.endswith(_IMG_FORMAT) or i.endswith(_IMG_FORMAT+".gz")]
 			self.store = {}       #{'folder_1':[list name], 'folder_2': [list name], ...}
 			self.TABLE_STORE = {} #{'folder_1":[table: name-prefix-number], 'folder_2':[table:name-prefix-number],...}
 			
 			self.current_folder = folder
-			#print "get list dir"
+			#print self.store
 			self.threads = []
 			self.get_list_dir(self.current_folder)
 			for t in self.threads:
 				t.join()
 			while len(self.threads)>0:
 				self.threads.pop()
-			#gobject.timeout_add(100, self._callback)
-			#print "Done listdir"
-			
-			len_mainstore = len(main_store)
-			if len_mainstore>0:
+			gobject.timeout_add(100, self._callback)
+			if len(main_store)>0:
+				#main_store = sorted(main_store)
 				main_store = list_to_table(main_store,sort_col=0)
 				self.TABLE_STORE[str(folder)] = main_store
 				self.store[str(folder)] = get_column_from_table(main_store,0)
-				self.threads=[]
-				for pt in xrange(len_mainstore):
-					parent = None
-					child  = main_store[pt][0]
-					t = threading.Thread(target=self.thread_applying_model,args=(parent,child,))
-					self.threads.append(t)
-					t.start()
-				for t in self.threads:
-					t.join()
-				while len(self.threads)>0:
-					self.threads.pop()
-				#gobject.timeout_add(100, self._callback)
+				for i in main_store:
+					self.MODEL.append(None,[i[0]])
 			else:
 				pass
-			print "Done."
 			self.TVcolumn.set_title(folder_basename)
 			self.DATA_IS_LOADED = True
 			

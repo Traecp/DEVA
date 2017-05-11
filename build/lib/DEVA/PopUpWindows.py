@@ -1,23 +1,25 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-import gtk
+import gi
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk
 import numpy as N
 from scipy import ndimage, stats
 
 from matplotlib.figure import Figure
-from matplotlib.backends.backend_gtkagg import FigureCanvasGTKAgg as FigureCanvas
-from matplotlib.backends.backend_gtkagg import NavigationToolbar2GTKAgg as NavigationToolbar
+from matplotlib.backends.backend_gtk3agg import FigureCanvasGTK3Agg as FigureCanvas
+from matplotlib.backends.backend_gtk3 import NavigationToolbar2GTK3 as NavigationToolbar
 from matplotlib.widgets import Cursor
 
 
 class PopUpFringes(object):
 	def __init__(self, xdata, xlabel, ylabel, title):
-		self.popupwin=gtk.Window()
+		self.popupwin=Gtk.Window()
 		self.popupwin.set_size_request(600,550)
-		self.popupwin.set_position(gtk.WIN_POS_CENTER)
+		self.popupwin.set_position(Gtk.WindowPosition.CENTER)
 		self.popupwin.set_border_width(10)
 		self.xdata = xdata
-		vbox = gtk.VBox()
+		vbox = Gtk.VBox()
 		self.fig=Figure(dpi=100)
 		self.ax  = self.fig.add_subplot(111)
 		self.canvas  = FigureCanvas(self.fig)
@@ -50,13 +52,13 @@ class PopUpFringes(object):
 	
 class PopUpImage(object):
 	def __init__(self, xdata, ydata, xlabel, ylabel, title):
-		self.popupwin=gtk.Window()
+		self.popupwin=Gtk.Window()
 		self.popupwin.set_size_request(600,550)
-		self.popupwin.set_position(gtk.WIN_POS_CENTER)
+		self.popupwin.set_position(Gtk.WindowPosition.CENTER)
 		self.popupwin.set_border_width(10)
 		self.xdata = xdata
 		self.ydata = ydata
-		vbox = gtk.VBox()
+		vbox = Gtk.VBox()
 		self.fig=Figure(dpi=100)
 		self.ax  = self.fig.add_subplot(111)
 		self.canvas  = FigureCanvas(self.fig)

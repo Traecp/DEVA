@@ -1,0 +1,14 @@
+#!/usr/bin/env xdg-open
+
+[Desktop Entry]
+Version=1.0
+Encoding=UTF-8
+Type=Application
+Name=DEVA
+Comment=
+Categories=Application;
+Exec=Deva
+Icon=/users/opd28/Icons/DEVA.png
+Terminal=false
+StartupNotify=false
+GenericName=

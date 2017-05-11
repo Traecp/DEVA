@@ -1,0 +1,18 @@
+_SPEC_IMG_COL         = ["img", "Image_num"] #column containing image number in spec file
+_IMG_NUMBER_SEPARATOR = "_"  #Please prefer to use the underscore to separate image number from prefix
+_IMG_FORMAT           = ".edf"
+# ********************************************************************************************************************************************
+_DETECTOR_NAME    = "Maxipix"
+_DETECTOR_PIXELS  = [516, 516] #Number of pixels in the first and second direction. First means vertical, second means horizontal direction
+_PIXEL_SIZE        = 55e-6 #m
+# ********************************************************************************************************************************************
+_DETECTOR_ROTATIONS           = 1 #Number of rotations
+_DETECTOR_MOTORS              = ["tth"] #Detector motors, from outermost to innermost if having more than 1 motor
+_DETECTOR_ROTATION_DIRECTIONS = ['z+'] #positive rotation direction of the detector's arm, outermost --> inner most
+_DETECTOR_PIXEL_DIRECTIONS    = ['z+', 'y+'] #Positive directions of the pixels, first (vertical) and second (horizontal) direction
+# ********************************************************************************************************************************************
+_SAMPLE_ROTATIONS             = 3 #Number of sample rotations
+_SAMPLE_ROTATION_DIRECTIONS   = ['z+', 'x-', 'z+'] #Positive rotation directions of the sample motors, from outermost circle to innermost circle
+_SAMPLE_ROTATION_MOTORS       = ["th", "chi", "phi"] #Sample rotation motors, from outermost to innermost circle
+_XRAY_INCIDENT_BEAM_DIRECTION = 'x+' #Direction of incident X-ray beam. In general we choose this direction as x+
+
